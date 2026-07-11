@@ -36,6 +36,14 @@ describe("router", () => {
     });
   });
 
+  it("routes the single-channel Phase 1 smoke event", () => {
+    expect(router.route(event({ source_id: "phase1-test", event_type: "notification", severity: "high" }))).toEqual({
+      adapter_ids: ["http-webhook"],
+      dispatch: "immediate",
+      strategy: "all",
+    });
+  });
+
   it("returns null for an unmatched event", () => {
     expect(router.route(event({ source_id: "unknown", event_type: "unknown", severity: "info" }))).toBeNull();
   });

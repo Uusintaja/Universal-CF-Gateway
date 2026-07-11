@@ -11,6 +11,12 @@ export const ROUTING_TABLE: { version: "1.0"; rules: RoutingRule[] } = {
   version: "1.0",
   rules: [
     {
+      match: { source_id: "phase1-test", event_type: "notification", severity: "high" },
+      adapters: ["http-webhook"],
+      dispatch: "immediate",
+      strategy: "all",
+    },
+    {
       match: { source_id: "github-ci", event_type: "build.failed", severity: "high" },
       adapters: ["slack-webhook", "email-mailchannels"],
       dispatch: "immediate",

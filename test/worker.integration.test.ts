@@ -1,8 +1,8 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
-describe("Phase 0 worker flow", () => {
-  it("decodes, routes, and renders a webhook without sending it", async () => {
+describe("Worker route boundaries", () => {
+  it("does not silently send a multi-adapter route before Phase 2", async () => {
     const response = await SELF.fetch("https://gateway.test/hooks/github-ci", {
       method: "POST",
       headers: {
@@ -18,16 +18,8 @@ describe("Phase 0 worker flow", () => {
       }),
     });
 
-    expect(response.status).toBe(200);
-    const payload = await response.json<{
-      event: { source_id: string; event_type: string };
-      route: { dispatch: string; strategy: string };
-      rendered: { transport: string };
-    }>();
-
-    expect(payload.event).toMatchObject({ source_id: "github-ci", event_type: "build.failed" });
-    expect(payload.route).toMatchObject({ dispatch: "immediate", strategy: "all" });
-    expect(payload.rendered).toEqual({ transport: "http" });
+    expect(response.status).toBe(501);
+    await expect(response.json()).resolves.toMatchObject({ error: "ADAPTER_NOT_IMPLEMENTED" });
   });
 
   it("rejects a webhook without a source selector before decoding", async () => {

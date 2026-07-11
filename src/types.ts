@@ -31,6 +31,10 @@ export interface RequestMeta {
   transport: "http" | "email";
 }
 
+export interface Env {
+  PHASE1_WEBHOOK_URL?: string;
+}
+
 export interface InternalEvent {
   schema_version: "1.0";
   event_id: string;

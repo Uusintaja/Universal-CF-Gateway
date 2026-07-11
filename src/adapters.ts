@@ -11,7 +11,7 @@ export class JsonWebhookAdapter implements ChannelAdapter {
 
   constructor(public readonly id: string) {}
 
-  async render(message: InternalPushMessage, context: AdapterContext): Promise<TransportRequest> {
+  async render(message: InternalPushMessage, context: AdapterContext): Promise<Extract<TransportRequest, { transport: "http" }>> {
     const endpoint = context.secrets.endpoint;
     if (!endpoint) throw new Error("Adapter endpoint is required for rendering");
 
