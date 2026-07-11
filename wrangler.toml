@@ -1,0 +1,4 @@
+name = "universal-cf-gateway-mvp-alpha"
+main = "src/index.ts"
+compatibility_date = "2026-03-10"
+workers_dev = true

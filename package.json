@@ -1,0 +1,24 @@
+{
+  "name": "universal-cf-gateway-mvp-alpha",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Phase 0 input pipeline MVP for a generic notification gateway on Cloudflare Workers.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "deploy:dry-run": "wrangler deploy --dry-run",
+    "check": "npm run typecheck && npm run test:run && npm run deploy:dry-run"
+  },
+  "dependencies": {
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.12.21",
+    "@cloudflare/workers-types": "4.20260310.1",
+    "typescript": "5.8.3",
+    "vitest": "3.2.7",
+    "wrangler": "4.72.0"
+  }
+}
