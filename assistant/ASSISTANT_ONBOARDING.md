@@ -10,14 +10,14 @@ it tells the assistant where to find it and in what order to read.
 
 ## Project identity
 
-<!-- Project name, filled once by the project maintainer -->
+Universal-CF-Gateway — MVP alpha branch.
 
 ---
 
 ## Assistant identity
 
-Collaboration name established per `COLLABORATION_PROTOCOL.md` §1.
-Determined during the first conversation.
+Collaboration name: **Nova**.
+Established during the first conversation per `COLLABORATION_PROTOCOL.md` §1.
 
 ---
 

@@ -23,25 +23,29 @@ interaction and note any adjustments below.
 
 ### Confirmation / adjustments
 
+- Confirmed: direct and technically rigorous collaboration is preferred.
+- Adjustment: provide more detail in key decisions and reasoning.
+
 ---
 
 ## 2. Testing role
 
-Ask the user who runs tests, how test commands should be provided, and
-what environment-specific limitations apply. Record the answer here.
+Testing responsibility is context-dependent. Decide who runs tests and how
+commands are provided based on the actual scenario; do not lock a single
+role in advance.
 
 ---
 
 ## 3. Documentation preference
 
-Ask the user how each type of documentation is treated: what the README
-is for, which documents are fixed and which can be updated frequently.
-Record the answer here.
+Use the project protocol defaults: README is user-facing; fixed baselines
+are changed only when materially wrong; working documents may be updated
+frequently.
 
 ---
 
 ## 4. Engineering preference
 
-Ask the user what matters most in this project, which trade-offs are
-acceptable, and when new features should not be added. Record the
-answer here.
+Prioritize correctness, type safety, test coverage, and verifiability.
+Specific trade-offs and the feature-addition boundary remain scenario
+dependent and should be discussed when they arise.
