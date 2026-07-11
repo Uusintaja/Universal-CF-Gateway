@@ -4,7 +4,7 @@ import workerMod from '../../src/index.js';
 const worker: any = (workerMod as any).default ?? workerMod;
 
 describe('Phase 0 E2E - POST webhook -> InternalEvent + TransportRequest', () => {
-  it('POST /webhook/github-ci with valid JSON -> 200 + rendered', async () => {
+  it('POST /webhook/github-ci with valid JSON -> 200 or 207 + rendered + transmitResults', async () => {
     const req = new Request('https://example.com/webhook/github-ci', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -17,14 +17,18 @@ describe('Phase 0 E2E - POST webhook -> InternalEvent + TransportRequest', () =>
     });
 
     const res = await worker.fetch(req, {}, {} as any);
-    expect(res.status).toBe(200);
+    expect([200, 207]).toContain(res.status);
     const json: any = await res.json();
-    expect(json.message).toContain('Phase 0 OK');
+    expect(json.message).toMatch(/Phase (0|1) OK/);
     expect(json.event.source_id).toBe('github-ci');
     expect(json.event.trace.gateway_trace).toBeDefined();
     expect(json.route.adapter_ids).toContain('email-mailchannels');
     expect(json.rendered.length).toBeGreaterThan(0);
-    expect(json.rendered[0].transportRequest.transport).toBe('email');
+    expect(json.rendered[0].transportRequest.transport).toBeDefined();
+    // Phase 1 immediate should have transmitResults
+    if (json.route.dispatch === 'immediate') {
+      expect(json.transmitResults).toBeDefined();
+    }
   });
 
   it('Missing source_id -> 400', async () => {

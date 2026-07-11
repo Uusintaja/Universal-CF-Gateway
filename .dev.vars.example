@@ -1,0 +1,13 @@
+# Phase 1 local dev secrets - copy to .dev.vars (gitignored per .gitignore)
+# Never commit real secrets, per PAT_GUIDE.md masking rule
+
+EMAIL_FROM=gateway@example.com
+EMAIL_TO=test@example.com
+# For MailChannels / Email Routing - Cloudflare will inject EMAIL binding, these are just for render
+# SLACK_WEBHOOK_URL or WEBHOOK_SITE_URL for HTTP adapter smoke
+SLACK_WEBHOOK_URL=https://webhook.site/REPLACE_WITH_REVOCABLE_ID
+WEBHOOK_SITE_URL=https://webhook.site/REPLACE_WITH_REVOCABLE_ID
+
+# Optional: Cloudflare API for wrangler deploy (use env, not here)
+# CLOUDFLARE_API_TOKEN=
+# CLOUDFLARE_ACCOUNT_ID=
