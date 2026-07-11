@@ -1,0 +1,25 @@
+# Deps
+node_modules/
+.pnp/
+.pnp.js
+
+# Build
+dist/
+.wrangler/
+.dev.vars
+wrangler/*.json
+
+# OS
+.DS_Store
+*.log
+npm-debug.log*
+
+# Secrets - per PAT_GUIDE.md never commit PAT
+.pat
+*.pat
+.secrets/
+.env
+.env.local
+
+# Test coverage
+coverage/

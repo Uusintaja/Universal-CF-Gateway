@@ -1,0 +1,28 @@
+name = "universal-cf-gateway-mvp"
+main = "src/index.ts"
+compatibility_date = "2024-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[queues.producers]]
+queue = "slack-webhook"
+binding = "Q_SLACK"
+
+[[queues.consumers]]
+queue = "slack-webhook"
+max_batch_size = 5
+max_batch_timeout = 60
+max_retries = 3
+# Production target per DESIGN-DOC §0.3 is 900s, Miniflare caps at 60s locally - use 60 for local validation
+
+[durable_objects]
+bindings = [
+  { name = "COORDINATOR", class_name = "CoordinatorDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["CoordinatorDO"]
+
+[[kv_namespaces]]
+binding = "KV"
+id = "local-kv-placeholder"
