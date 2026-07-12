@@ -3,16 +3,17 @@ main = "src/index.ts"
 compatibility_date = "2024-07-01"
 compatibility_flags = ["nodejs_compat"]
 
-[[queues.producers]]
-queue = "slack-webhook"
-binding = "Q_SLACK"
-
-[[queues.consumers]]
-queue = "slack-webhook"
-max_batch_size = 5
-max_batch_timeout = 60
-max_retries = 3
-# Production target per DESIGN-DOC §0.3 is 900s, Miniflare caps at 60s locally - use 60 for local validation
+# Phase 1 scope: high-priority sync path does NOT need Queues (per DESIGN-DOC Phasing)
+# Queues are Phase 3 (low-priority batch). Keep commented as placeholder for Phase 3.
+# To enable Phase 3, uncomment and run: wrangler queues create slack-webhook
+# [[queues.producers]]
+# queue = "slack-webhook"
+# binding = "Q_SLACK"
+# [[queues.consumers]]
+# queue = "slack-webhook"
+# max_batch_size = 5
+# max_batch_timeout = 60
+# max_retries = 3
 
 [durable_objects]
 bindings = [
@@ -26,3 +27,4 @@ new_classes = ["CoordinatorDO"]
 [[kv_namespaces]]
 binding = "KV"
 id = "local-kv-placeholder"
+
