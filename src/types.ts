@@ -76,9 +76,31 @@ export interface CoordinatorRpc {
   checkDelivered(eventIds: string[]): Promise<{ delivered: string[]; not_delivered: string[] }>;
 }
 
+export interface QueueEnvelope {
+  schema_version: "1.0";
+  adapter_id: string;
+  event_id: string;
+  source_id: string;
+  event_type: string;
+  severity: Severity;
+  timestamp: string;
+  title: string;
+  body: unknown;
+  trace: TraceRef;
+  auth_context: AuthContext | null;
+  metadata: Record<string, unknown>;
+  raw_payload: {
+    encoding: "base64";
+    bytes: string;
+    content_type?: string;
+  };
+  created_at: string;
+}
+
 export interface Env {
   PHASE1_WEBHOOK_URL?: string;
   COORDINATOR?: DurableObjectNamespace;
+  HTTP_WEBHOOK_QUEUE?: Queue<QueueEnvelope>;
 }
 
 export interface InternalEvent {

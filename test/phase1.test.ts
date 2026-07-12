@@ -46,15 +46,15 @@ describe("Phase 1 immediate webhook path", () => {
     expect(new TextDecoder().decode(requestInit?.body as Uint8Array)).toBe(originalBody);
   });
 
-  it("does not pretend that an enqueue route is implemented", async () => {
-    const response = await handleRequest(new Request("https://gateway.test/hooks/monitor", {
+  it("rejects an enqueue route when the Queue binding is unavailable", async () => {
+    const response = await handleRequest(new Request("https://gateway.test/hooks/phase3-test", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ event_type: "heartbeat", severity: "info", title: "Low priority", body: {} }),
+      body: JSON.stringify({ event_type: "notification", severity: "low", title: "Low priority", body: {} }),
     }), env, { fetchImpl: vi.fn() });
 
-    expect(response.status).toBe(501);
-    await expect(response.json()).resolves.toMatchObject({ error: "ENQUEUE_NOT_IMPLEMENTED" });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ error: "QUEUE_NOT_CONFIGURED" });
   });
 
   it("rejects an immediate route whose adapter set is not implemented in Phase 1", async () => {

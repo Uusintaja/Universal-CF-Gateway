@@ -2,8 +2,9 @@ import { JsonWebhookAdapter } from "./adapters";
 import { genericJsonDecoder } from "./decoder";
 import { materializeHttp } from "./io";
 import { OUTPUT_IO_LIMITS, transmitHttp, type TransmitHttpOptions, type TransmitHttpResult } from "./output-io";
+import { pushMessageFromEnvelope, toQueueEnvelope } from "./queue";
 import { router } from "./router";
-import type { CoordinatorRpc, Env, InternalEvent, InternalPushMessage, RequestMeta } from "./types";
+import type { CoordinatorRpc, Env, InternalEvent, InternalPushMessage, QueueEnvelope, RequestMeta } from "./types";
 
 export { CoordinatorDO } from "./coordinator";
 export * from "./adapters";
@@ -11,6 +12,7 @@ export * from "./decoder";
 export * from "./event-id";
 export * from "./io";
 export * from "./output-io";
+export * from "./queue";
 export * from "./router";
 export * from "./schema";
 export * from "./types";
@@ -66,10 +68,10 @@ function failureStatus(result: Extract<Awaited<ReturnType<typeof transmitHttp>>,
   return 400;
 }
 
-function coordinatorFor(env: Env, dependencies: WorkerDependencies): CoordinatorRpc | null {
+function coordinatorFor(env: Env, dependencies: WorkerDependencies, adapterId: string): CoordinatorRpc | null {
   if (dependencies.coordinator) return dependencies.coordinator;
   if (!env.COORDINATOR) return null;
-  return env.COORDINATOR.get(env.COORDINATOR.idFromName(phase1Adapter.id)) as unknown as CoordinatorRpc;
+  return env.COORDINATOR.get(env.COORDINATOR.idFromName(adapterId)) as unknown as CoordinatorRpc;
 }
 
 export async function handleRequest(
@@ -108,9 +110,18 @@ export async function handleRequest(
 
   const route = router.route(decoded);
   if (!route) return jsonResponse({ event: decoded, route: null }, 200);
-  if (route.dispatch !== "immediate") {
-    return jsonResponse({ error: "ENQUEUE_NOT_IMPLEMENTED", route }, 501);
+
+  if (route.dispatch === "enqueue") {
+    if (route.adapter_ids.length !== 1 || route.adapter_ids[0] !== phase1Adapter.id) {
+      return jsonResponse({ error: "ADAPTER_NOT_IMPLEMENTED", route }, 501);
+    }
+    if (!env.HTTP_WEBHOOK_QUEUE) {
+      return jsonResponse({ error: "QUEUE_NOT_CONFIGURED" }, 503);
+    }
+    await env.HTTP_WEBHOOK_QUEUE.send(toQueueEnvelope(decoded, phase1Adapter.id), { contentType: "json" });
+    return jsonResponse({ status: "queued", event_id: decoded.event_id, route }, 202);
   }
+
   if (route.adapter_ids.length !== 1 || route.adapter_ids[0] !== phase1Adapter.id) {
     return jsonResponse({ error: "ADAPTER_NOT_IMPLEMENTED", route }, 501);
   }
@@ -118,7 +129,7 @@ export async function handleRequest(
     return jsonResponse({ error: "CONFIGURATION_ERROR", message: "PHASE1_WEBHOOK_URL is not configured" }, 503);
   }
 
-  const coordinator = coordinatorFor(env, dependencies);
+  const coordinator = coordinatorFor(env, dependencies, phase1Adapter.id);
   if (!coordinator) {
     return jsonResponse({ error: "COORDINATOR_NOT_CONFIGURED" }, 503);
   }
@@ -193,8 +204,99 @@ export async function handleRequest(
   });
 }
 
+export async function processQueueBatch(
+  batch: MessageBatch<QueueEnvelope>,
+  env: Env,
+  _ctx: ExecutionContext,
+  dependencies: WorkerDependencies = {},
+): Promise<void> {
+  let sent = 0;
+  let deduplicated = 0;
+  let retried = 0;
+
+  for (const message of batch.messages) {
+    const envelope = message.body;
+    if (envelope.adapter_id !== phase1Adapter.id) {
+      message.retry({ delaySeconds: 5 });
+      retried += 1;
+      continue;
+    }
+    if (!env.PHASE1_WEBHOOK_URL) {
+      message.retry({ delaySeconds: 5 });
+      retried += 1;
+      continue;
+    }
+
+    const coordinator = coordinatorFor(env, dependencies, envelope.adapter_id);
+    if (!coordinator) {
+      message.retry({ delaySeconds: 5 });
+      retried += 1;
+      continue;
+    }
+
+    const acquired = await coordinator.acquire({
+      event_ids: [envelope.event_id],
+      severity: envelope.severity,
+    });
+    if (!acquired.allowed) {
+      message.retry({ delaySeconds: 5 });
+      retried += 1;
+      continue;
+    }
+    if (!acquired.lease_id || acquired.to_send_ids.length === 0) {
+      message.ack();
+      deduplicated += 1;
+      continue;
+    }
+
+    let result: TransmitHttpResult | undefined;
+    try {
+      const rendered = await phase1Adapter.render(pushMessageFromEnvelope(envelope), {
+        secrets: { endpoint: env.PHASE1_WEBHOOK_URL },
+        config: phase1Adapter.config,
+      });
+      result = await transmitHttp(rendered, {
+        fetchImpl: dependencies.fetchImpl,
+        sleep: dependencies.sleep,
+        timeoutMs: dependencies.timeoutMs ?? OUTPUT_IO_LIMITS.TIMEOUT_MS,
+        immediateRetries: dependencies.immediateRetries ?? OUTPUT_IO_LIMITS.IMMEDIATE_RETRIES,
+        backoffMs: dependencies.backoffMs ?? OUTPUT_IO_LIMITS.BACKOFF_MS,
+      });
+    } catch {
+      result = {
+        ok: false,
+        attempts: 1,
+        error: { code: "UNKNOWN", message: "Queue message transmit failed", retryable: true },
+      };
+    } finally {
+      await coordinator.release({ lease_id: acquired.lease_id, success: result?.ok === true });
+    }
+
+    if (result.ok) {
+      message.ack();
+      sent += 1;
+    } else {
+      message.retry({ delaySeconds: 5 });
+      retried += 1;
+    }
+  }
+
+  console.log(JSON.stringify({
+    level: "info",
+    event: "queue_batch_result",
+    queue: batch.queue,
+    batch_size: batch.messages.length,
+    sent,
+    deduplicated,
+    retried,
+  }));
+}
+
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     return handleRequest(request, env);
+  },
+  queue(batch: MessageBatch<QueueEnvelope>, env: Env, ctx: ExecutionContext): Promise<void> {
+    return processQueueBatch(batch, env, ctx);
   },
 };

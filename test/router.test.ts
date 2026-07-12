@@ -45,6 +45,14 @@ describe("router", () => {
     });
   });
 
+  it("routes the single-channel Phase 3 low-priority event to a Queue", () => {
+    expect(router.route(event({ source_id: "phase3-test", event_type: "notification", severity: "low" }))).toEqual({
+      adapter_ids: ["http-webhook"],
+      dispatch: "enqueue",
+      strategy: "all",
+    });
+  });
+
   it("returns null for an unmatched event", () => {
     expect(router.route(event({ source_id: "unknown", event_type: "unknown", severity: "info" }))).toBeNull();
   });

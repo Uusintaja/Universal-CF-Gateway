@@ -3,6 +3,16 @@ main = "src/index.ts"
 compatibility_date = "2026-03-10"
 workers_dev = true
 
+[[queues.producers]]
+binding = "HTTP_WEBHOOK_QUEUE"
+queue = "universal-cf-gateway-http-webhook"
+
+[[queues.consumers]]
+queue = "universal-cf-gateway-http-webhook"
+max_batch_size = 5
+max_batch_timeout = 60
+max_retries = 3
+
 [[durable_objects.bindings]]
 name = "COORDINATOR"
 class_name = "CoordinatorDO"

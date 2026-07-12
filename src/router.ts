@@ -17,6 +17,12 @@ export const ROUTING_TABLE: { version: "1.0"; rules: RoutingRule[] } = {
       strategy: "all",
     },
     {
+      match: { source_id: "phase3-test", event_type: "notification", severity: "low" },
+      adapters: ["http-webhook"],
+      dispatch: "enqueue",
+      strategy: "all",
+    },
+    {
       match: { source_id: "github-ci", event_type: "build.failed", severity: "high" },
       adapters: ["slack-webhook", "email-mailchannels"],
       dispatch: "immediate",
