@@ -14,7 +14,8 @@ describe("input I/O layer", () => {
 
     const raw = await materializeHttp(request, { gatewayTrace: "trace-test-001" });
 
-    expect(new TextDecoder().decode(raw.body)).toBe('{"hello":"world"}');
+    expect(new TextDecoder().decode(raw.raw_payload.bytes)).toBe('{"hello":"world"}');
+    expect(raw.raw_payload.content_type).toBe("application/json");
     expect(raw.gateway_trace).toBe("trace-test-001");
     expect(raw.headers["content-type"]).toBe("application/json");
     expect(raw.headers["x-test-header"]).toBe("present");

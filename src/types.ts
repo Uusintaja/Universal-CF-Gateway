@@ -12,8 +12,13 @@ export interface AuthContext {
   [key: string]: unknown;
 }
 
+export interface RawPayload {
+  bytes: Uint8Array;
+  content_type?: string;
+}
+
 export interface RawInput {
-  body: Uint8Array;
+  raw_payload: RawPayload;
   headers: Record<string, string>;
   gateway_trace: string;
   source_meta: {
@@ -44,12 +49,13 @@ export interface InternalEvent {
   timestamp: string;
   title: string;
   body: unknown;
+  raw_payload: RawPayload;
   trace: TraceRef;
   auth_context: AuthContext | null;
   metadata: Record<string, unknown>;
 }
 
-export type DecodeErrorCode = "BAD_BODY" | "UNAUTHORIZED" | "UNSUPPORTED" | "MALFORMED" | "UNKNOWN";
+export type DecodeErrorCode = "BAD_BODY" | "UNAUTHORIZED" | "UNSUPPORTED" | "MALFORMED" | "PAYLOAD_TOO_COMPLEX" | "UNKNOWN";
 
 export interface DecodeError {
   code: DecodeErrorCode;
@@ -81,6 +87,7 @@ export interface PushItem {
   event_id: string;
   title: string;
   body: unknown;
+  raw_payload: RawPayload;
   severity: Severity;
   timestamp: string;
   trace: TraceRef;
@@ -104,7 +111,7 @@ export type TransportRequest =
         method: string;
         url: string;
         headers: Record<string, string>;
-        body: string;
+        body: string | Uint8Array;
       };
     }
   | {

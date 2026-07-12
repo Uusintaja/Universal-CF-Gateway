@@ -94,7 +94,10 @@ export async function materializeHttp(
   request.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
 
   return {
-    body,
+    raw_payload: {
+      bytes: body,
+      content_type: headers["content-type"],
+    },
     headers,
     gateway_trace: options.gatewayTrace ?? createGatewayTrace(),
     source_meta: {

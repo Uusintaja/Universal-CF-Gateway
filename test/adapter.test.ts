@@ -11,6 +11,10 @@ const message: InternalPushMessage = {
     event_id: "123e4567-e89b-12d3-a456-426614174000",
     title: "Build failed",
     body: { commit: "abc" },
+    raw_payload: {
+      bytes: new TextEncoder().encode('{"commit":"abc"}'),
+      content_type: "application/json",
+    },
     severity: "high",
     timestamp: "2026-07-11T00:00:00.000Z",
     trace: { gateway_trace: "trace-1" },
@@ -34,7 +38,7 @@ describe("JSON webhook adapter", () => {
         method: "POST",
         url: "https://channel.invalid/hook",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(message),
+        body: message.items[0].raw_payload.bytes,
       },
     });
   });

@@ -12,6 +12,7 @@ function event(overrides: Partial<InternalEvent> = {}): InternalEvent {
     timestamp: "2026-07-11T00:00:00.000Z",
     title: "Build failed",
     body: {},
+    raw_payload: { bytes: new Uint8Array(), content_type: "application/json" },
     trace: { gateway_trace: "trace-1" },
     auth_context: null,
     metadata: {},

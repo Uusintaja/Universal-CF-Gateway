@@ -46,6 +46,7 @@ function toPushMessage(event: InternalEvent, adapterId: string): InternalPushMes
       event_id: event.event_id,
       title: event.title,
       body: event.body,
+      raw_payload: event.raw_payload,
       severity: event.severity,
       timestamp: event.timestamp,
       trace: event.trace,

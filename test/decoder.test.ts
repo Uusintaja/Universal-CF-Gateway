@@ -11,7 +11,10 @@ const meta: RequestMeta = {
 
 function rawJson(value: unknown): RawInput {
   return {
-    body: new TextEncoder().encode(JSON.stringify(value)),
+    raw_payload: {
+      bytes: new TextEncoder().encode(JSON.stringify(value)),
+      content_type: "application/json",
+    },
     headers: { "content-type": "application/json" },
     gateway_trace: "gateway-trace-001",
     source_meta: { transport: "http", method: "POST", path: "/hooks/github-ci" },
@@ -33,7 +36,7 @@ describe("generic JSON decoder", () => {
 
     expect(result).toMatchObject({
       schema_version: "1.0",
-      event_id: "123e4567-e89b-12d3-a456-426614174000",
+      event_id: expect.any(String),
       source_id: "github-ci",
       event_type: "build.failed",
       severity: "high",
@@ -41,6 +44,10 @@ describe("generic JSON decoder", () => {
       trace: { source_trace: "delivery-123", gateway_trace: "gateway-trace-001" },
       auth_context: null,
     });
+    if ("event_id" in result) {
+      expect(result.event_id).not.toBe("123e4567-e89b-12d3-a456-426614174000");
+      expect(new TextDecoder().decode(result.raw_payload.bytes)).toContain('"commit":"abc"');
+    }
   });
 
   it("creates a stable UUID when event_id is absent", async () => {
@@ -61,7 +68,10 @@ describe("generic JSON decoder", () => {
   it("returns a normalized DecodeError for malformed JSON", async () => {
     const result = await genericJsonDecoder.decode({
       ...rawJson({}),
-      body: new TextEncoder().encode("not-json"),
+      raw_payload: {
+        bytes: new TextEncoder().encode("not-json"),
+        content_type: "application/json",
+      },
     }, meta);
 
     expect(result).toEqual({

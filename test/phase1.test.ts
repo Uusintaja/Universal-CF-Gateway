@@ -11,7 +11,12 @@ describe("Phase 1 immediate webhook path", () => {
   };
 
   it("sends the single-channel Phase 1 route", async () => {
-    const fetchImpl = vi.fn(async () => new Response("accepted", { status: 202 }));
+    const fetchCalls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCalls.push([input, init]);
+      return new Response("accepted", { status: 202 });
+    });
+    const originalBody = JSON.stringify(payload);
     const response = await handleRequest(new Request("https://gateway.test/hooks/phase1-test", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -26,6 +31,9 @@ describe("Phase 1 immediate webhook path", () => {
       route: { adapter_ids: ["http-webhook"], dispatch: "immediate" },
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const requestInit = fetchImpl.mock.calls[0]?.[1];
+    expect(requestInit?.body).toBeInstanceOf(Uint8Array);
+    expect(new TextDecoder().decode(requestInit?.body as Uint8Array)).toBe(originalBody);
   });
 
   it("does not pretend that an enqueue route is implemented", async () => {
