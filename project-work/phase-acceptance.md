@@ -47,12 +47,22 @@
 | Consumer send + ack | passed locally | `createMessageBatch` / `getQueueResult` test |
 | Pass-through message preservation | passed locally | One Queue envelope → one raw-payload PushMessage |
 | Cross-message merge/chunk | deferred | Requires an Adapter-specific batch format |
-| Queue platform smoke | pending | Queue creation and deployment required |
+| Queue platform smoke | passed | Worker returned 202; Consumer delivered to webhook.site |
+| Raw Payload through Queue | passed | 342 original bytes = 342 received bytes |
+| Duplicate Queue delivery | passed | Duplicate enqueue returned 202; downstream received one copy |
+| Alpha resource naming | passed | `universal-cf-gateway-alpha-http-webhook` |
 | Retry and cold path | deferred | Phase 3B |
+
+### Phase 3A Platform Evidence
+
+- Queue resource: `universal-cf-gateway-alpha-http-webhook`.
+- Queue latency was approximately 60 seconds, matching `max_batch_timeout = 60`.
+- First enqueue returned `202 queued` and downstream delivery succeeded.
+- Re-enqueuing the same event also returned `202 queued`, but Coordinator DO prevented a second downstream delivery.
+- Webhook request UUID: `3095a689-3c63-41c5-aeca-dd3f9144cdbd`.
 
 ## Current MVP Gate
 
-Phase 0, Phase 1 and Phase 2 core acceptance passed.
-Phase 3A local acceptance passed; platform smoke is pending queue creation and deployment.
+Phase 0, Phase 1, Phase 2 core, and Phase 3A acceptance passed.
 Phase 3B and final MVP hardening remain. Final MVP acceptance must include the
 consolidated hardening review before release sign-off.
