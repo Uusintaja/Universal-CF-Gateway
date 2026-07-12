@@ -5,5 +5,5 @@
 - `assistant/project-context/project-state.md`
 - `assistant/project-context/project-constraints.md`
 - `assistant/project-context/project-key-docs.md`
-- `project_review/DESIGN-DOC.md`
-- `project_review/free-tier-facts-verified.md`
+- `project-work/historical/project_review/DESIGN-DOC.md`
+- `project-work/historical/project_review/free-tier-facts-verified.md`
