@@ -4,6 +4,7 @@
 
 - Phase 3A 已完成本地实现，等待 Queue 创建和新版本部署后的平台冒烟。
 - Phase 3B 尚未开始：retry/backoff、cold path、KV 查询缓存。
+- 跨消息 merge/chunk 尚未实现；测试 Adapter 当前采用一条 Queue envelope 对应一条 raw-payload PushMessage，避免未定义的批量 Payload 格式。
 - Phase 2 的 P2 硬化项保留在 `hardening-register.md`，不阻塞主线推进。
 
 ## Approved for Next Execution

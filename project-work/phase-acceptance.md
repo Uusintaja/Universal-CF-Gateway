@@ -45,6 +45,8 @@
 | QueueEnvelope | passed locally | Base64 raw payload test |
 | Queue consumer | passed locally | Queue batch test |
 | Consumer send + ack | passed locally | `createMessageBatch` / `getQueueResult` test |
+| Pass-through message preservation | passed locally | One Queue envelope → one raw-payload PushMessage |
+| Cross-message merge/chunk | deferred | Requires an Adapter-specific batch format |
 | Queue platform smoke | pending | Queue creation and deployment required |
 | Retry and cold path | deferred | Phase 3B |
 
