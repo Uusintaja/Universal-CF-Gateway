@@ -36,8 +36,49 @@ export interface RequestMeta {
   transport: "http" | "email";
 }
 
+export interface AcquireInput {
+  event_ids: string[];
+  severity: Severity;
+}
+
+export type Lane = "high_exclusive" | "low_exclusive" | "elastic";
+
+export type AcquireResult =
+  | {
+      allowed: true;
+      lane: Lane | null;
+      lease_id: string | null;
+      to_send_ids: string[];
+    }
+  | {
+      allowed: false;
+      reason: "circuit_open" | "lane_full";
+    };
+
+export interface ReleaseInput {
+  lease_id: string;
+  success: boolean;
+}
+
+export interface CoordinatorStatus {
+  circuit: "closed" | "open" | "half_open";
+  consecutive_failures: number;
+  open_until?: number;
+  lane_usage: { high_exclusive: number; low_exclusive: number; elastic: number };
+  delivered_marker_count: number;
+  delivered_marker_ttl_sec: number;
+}
+
+export interface CoordinatorRpc {
+  acquire(input: AcquireInput): Promise<AcquireResult>;
+  release(input: ReleaseInput): Promise<void>;
+  status(): Promise<CoordinatorStatus>;
+  checkDelivered(eventIds: string[]): Promise<{ delivered: string[]; not_delivered: string[] }>;
+}
+
 export interface Env {
   PHASE1_WEBHOOK_URL?: string;
+  COORDINATOR?: DurableObjectNamespace;
 }
 
 export interface InternalEvent {

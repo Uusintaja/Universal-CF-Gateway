@@ -2,3 +2,11 @@ name = "universal-cf-gateway-mvp-alpha"
 main = "src/index.ts"
 compatibility_date = "2026-03-10"
 workers_dev = true
+
+[[durable_objects.bindings]]
+name = "COORDINATOR"
+class_name = "CoordinatorDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CoordinatorDO"]

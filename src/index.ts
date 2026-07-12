@@ -1,12 +1,14 @@
 import { JsonWebhookAdapter } from "./adapters";
 import { genericJsonDecoder } from "./decoder";
 import { materializeHttp } from "./io";
-import { OUTPUT_IO_LIMITS, transmitHttp, type TransmitHttpOptions } from "./output-io";
+import { OUTPUT_IO_LIMITS, transmitHttp, type TransmitHttpOptions, type TransmitHttpResult } from "./output-io";
 import { router } from "./router";
-import type { Env, InternalEvent, InternalPushMessage, RequestMeta } from "./types";
+import type { CoordinatorRpc, Env, InternalEvent, InternalPushMessage, RequestMeta } from "./types";
 
+export { CoordinatorDO } from "./coordinator";
 export * from "./adapters";
 export * from "./decoder";
+export * from "./event-id";
 export * from "./io";
 export * from "./output-io";
 export * from "./router";
@@ -16,6 +18,7 @@ export * from "./types";
 const phase1Adapter = new JsonWebhookAdapter("http-webhook");
 
 export interface WorkerDependencies extends Pick<TransmitHttpOptions, "fetchImpl" | "sleep"> {
+  coordinator?: CoordinatorRpc;
   timeoutMs?: number;
   immediateRetries?: number;
   backoffMs?: number;
@@ -61,6 +64,12 @@ function failureStatus(result: Extract<Awaited<ReturnType<typeof transmitHttp>>,
   if (result.error.code === "NETWORK") return 504;
   if (result.status === 429 || result.status !== undefined && result.status >= 500) return 502;
   return 400;
+}
+
+function coordinatorFor(env: Env, dependencies: WorkerDependencies): CoordinatorRpc | null {
+  if (dependencies.coordinator) return dependencies.coordinator;
+  if (!env.COORDINATOR) return null;
+  return env.COORDINATOR.get(env.COORDINATOR.idFromName(phase1Adapter.id)) as unknown as CoordinatorRpc;
 }
 
 export async function handleRequest(
@@ -109,17 +118,53 @@ export async function handleRequest(
     return jsonResponse({ error: "CONFIGURATION_ERROR", message: "PHASE1_WEBHOOK_URL is not configured" }, 503);
   }
 
-  const rendered = await phase1Adapter.render(toPushMessage(decoded, phase1Adapter.id), {
-    secrets: { endpoint: env.PHASE1_WEBHOOK_URL },
-    config: phase1Adapter.config,
+  const coordinator = coordinatorFor(env, dependencies);
+  if (!coordinator) {
+    return jsonResponse({ error: "COORDINATOR_NOT_CONFIGURED" }, 503);
+  }
+
+  const acquired = await coordinator.acquire({
+    event_ids: [decoded.event_id],
+    severity: decoded.severity,
   });
-  const result = await transmitHttp(rendered, {
-    fetchImpl: dependencies.fetchImpl,
-    sleep: dependencies.sleep,
-    timeoutMs: dependencies.timeoutMs ?? OUTPUT_IO_LIMITS.TIMEOUT_MS,
-    immediateRetries: dependencies.immediateRetries ?? OUTPUT_IO_LIMITS.IMMEDIATE_RETRIES,
-    backoffMs: dependencies.backoffMs ?? OUTPUT_IO_LIMITS.BACKOFF_MS,
-  });
+  if (!acquired.allowed) {
+    return jsonResponse({ error: acquired.reason.toUpperCase(), route }, acquired.reason === "lane_full" ? 429 : 503);
+  }
+  if (!acquired.lease_id || acquired.to_send_ids.length === 0) {
+    return jsonResponse({
+      status: "deduplicated",
+      attempts: 0,
+      event_id: decoded.event_id,
+      route,
+    });
+  }
+
+  let result: TransmitHttpResult | undefined;
+  try {
+    const rendered = await phase1Adapter.render(toPushMessage(decoded, phase1Adapter.id), {
+      secrets: { endpoint: env.PHASE1_WEBHOOK_URL },
+      config: phase1Adapter.config,
+    });
+    result = await transmitHttp(rendered, {
+      fetchImpl: dependencies.fetchImpl,
+      sleep: dependencies.sleep,
+      timeoutMs: dependencies.timeoutMs ?? OUTPUT_IO_LIMITS.TIMEOUT_MS,
+      immediateRetries: dependencies.immediateRetries ?? OUTPUT_IO_LIMITS.IMMEDIATE_RETRIES,
+      backoffMs: dependencies.backoffMs ?? OUTPUT_IO_LIMITS.BACKOFF_MS,
+    });
+  } catch (error) {
+    result = {
+      ok: false,
+      attempts: 1,
+      error: {
+        code: "UNKNOWN",
+        message: error instanceof Error ? error.message : "Phase 1 transmit failed",
+        retryable: false,
+      },
+    };
+  } finally {
+    await coordinator.release({ lease_id: acquired.lease_id, success: result?.ok === true });
+  }
 
   console.log(JSON.stringify({
     level: result.ok ? "info" : "warn",

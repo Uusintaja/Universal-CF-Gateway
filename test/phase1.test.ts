@@ -1,14 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 import { handleRequest } from "../src/index";
+import type { CoordinatorRpc } from "../src/types";
 
 describe("Phase 1 immediate webhook path", () => {
   const env = { PHASE1_WEBHOOK_URL: "https://channel.invalid/hook" };
   const payload = {
     event_type: "notification",
-    severity: "high",
+    severity: "high" as const,
     title: "Phase 1 smoke event",
     body: { message: "synthetic" },
   };
+
+  function coordinator(): CoordinatorRpc {
+    return {
+      acquire: async ({ event_ids }) => ({ allowed: true, lane: "high_exclusive", lease_id: "phase1-lease", to_send_ids: event_ids }),
+      release: async () => undefined,
+      status: async () => ({ circuit: "closed", consecutive_failures: 0, lane_usage: { high_exclusive: 0, low_exclusive: 0, elastic: 0 }, delivered_marker_count: 0, delivered_marker_ttl_sec: 1000 }),
+      checkDelivered: async () => ({ delivered: [], not_delivered: [] }),
+    };
+  }
 
   it("sends the single-channel Phase 1 route", async () => {
     const fetchCalls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
@@ -21,7 +31,7 @@ describe("Phase 1 immediate webhook path", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
-    }), env, { fetchImpl });
+    }), env, { fetchImpl, coordinator: coordinator() });
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
