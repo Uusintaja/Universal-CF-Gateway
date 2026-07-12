@@ -36,8 +36,21 @@
 | marker cleanup | deferred | hardening register H-005 |
 | large-payload CPU envelope | deferred | hardening register H-006 |
 
+## Phase 3A — Queue Happy Path
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Queue producer binding | passed locally | Wrangler dry-run shows `HTTP_WEBHOOK_QUEUE` |
+| Low-priority enqueue route | passed locally | `phase3-test` returns 202 in tests |
+| QueueEnvelope | passed locally | Base64 raw payload test |
+| Queue consumer | passed locally | Queue batch test |
+| Consumer send + ack | passed locally | `createMessageBatch` / `getQueueResult` test |
+| Queue platform smoke | pending | Queue creation and deployment required |
+| Retry and cold path | deferred | Phase 3B |
+
 ## Current MVP Gate
 
 Phase 0, Phase 1 and Phase 2 core acceptance passed.
-Phase 3 is not started. Final MVP acceptance must include the consolidated
-hardening review before release sign-off.
+Phase 3A local acceptance passed; platform smoke is pending queue creation and deployment.
+Phase 3B and final MVP hardening remain. Final MVP acceptance must include the
+consolidated hardening review before release sign-off.

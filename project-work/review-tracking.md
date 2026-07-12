@@ -2,13 +2,14 @@
 
 ## Active Review Items
 
-- Phase 3 尚未开始；当前工作重点为文档体系和观测配置。
-- Phase 2 的 P2 硬化项保留在 `hardening-register.md`，不阻塞进入下一轮讨论。
+- Phase 3A 已完成本地实现，等待 Queue 创建和新版本部署后的平台冒烟。
+- Phase 3B 尚未开始：retry/backoff、cold path、KV 查询缓存。
+- Phase 2 的 P2 硬化项保留在 `hardening-register.md`，不阻塞主线推进。
 
 ## Approved for Next Execution
 
-- 建立五类文档目录和工作文档索引。
-- 启用 Wrangler observability logs、invocation logs 和 traces。
+- Phase 3B：retry/backoff 与 cold path 的详细讨论和执行范围确认。
+- Phase 3A 平台冒烟：低优请求入队、Consumer 发送和下游接收。
 
 ## Deferred
 
