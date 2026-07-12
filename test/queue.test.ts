@@ -55,7 +55,7 @@ describe("Phase 3A Queue path", () => {
 
   it("consumes a Queue message, sends it, and explicitly acks it", async () => {
     const envelope = toQueueEnvelope(event(), "http-webhook");
-    const batch = createMessageBatch<QueueEnvelope>("universal-cf-gateway-http-webhook", [{
+    const batch = createMessageBatch<QueueEnvelope>("universal-cf-gateway-alpha-http-webhook", [{
       id: "queue-message-1",
       timestamp: new Date(),
       attempts: 1,

@@ -5,10 +5,10 @@ workers_dev = true
 
 [[queues.producers]]
 binding = "HTTP_WEBHOOK_QUEUE"
-queue = "universal-cf-gateway-http-webhook"
+queue = "universal-cf-gateway-alpha-http-webhook"
 
 [[queues.consumers]]
-queue = "universal-cf-gateway-http-webhook"
+queue = "universal-cf-gateway-alpha-http-webhook"
 max_batch_size = 5
 max_batch_timeout = 60
 max_retries = 3
