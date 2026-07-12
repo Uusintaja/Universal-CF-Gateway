@@ -207,9 +207,4 @@ export default {
   }
 };
 
-export class CoordinatorDO {
-  constructor(_state: DurableObjectState) {}
-  async fetch(): Promise<Response> {
-    return new Response('CoordinatorDO placeholder Phase 1 - real logic Phase 2', { status: 200 });
-  }
-}
+export { CoordinatorDO } from './coordinator/coordinator.js';

@@ -1,29 +1,33 @@
-name = "universal-cf-gateway-mvp"
+name = "universal-cf-gateway-mvp-experimental"
 main = "src/index.ts"
 compatibility_date = "2024-07-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Phase 1 scope per DESIGN-DOC Implementation Plan:
-# - Input I/O + Decoder + Router + render + transmit (direct, no DO/Queues/KV)
-# Phase 1 can work without DO/Queues/KV (pure sync)
-# DO (Phase 2), Queues + KV (Phase 3) kept commented as placeholders
+# Phase 2 scope: DO coordination core (per DESIGN-DOC)
+# - Worker name includes branch feature "experimental" for dashboard filtering per user request
+# - Queues (Phase 3) and KV (Phase 3 cold cache) kept commented
 
+# Phase 3 Queues - experimental branch naming
+# To enable Phase 3, uncomment and run: wrangler queues create slack-webhook-experimental
 # [[queues.producers]]
-# queue = "slack-webhook"
-# binding = "Q_SLACK"
+# queue = "slack-webhook-experimental"
+# binding = "Q_SLACK_EXP"
 # [[queues.consumers]]
-# queue = "slack-webhook"
+# queue = "slack-webhook-experimental"
 # max_batch_size = 5
 # max_batch_timeout = 60
 # max_retries = 3
 
-# [durable_objects]
-# bindings = [{ name = "COORDINATOR", class_name = "CoordinatorDO" }]
-# [[migrations]]
-# tag = "v1"
-# new_classes = ["CoordinatorDO"]
+[durable_objects]
+bindings = [
+  { name = "COORDINATOR", class_name = "CoordinatorDO" }
+]
 
+[[migrations]]
+tag = "v1"
+new_classes = ["CoordinatorDO"]
+
+# KV for cold query cache - Phase 3, keep placeholder commented
 # [[kv_namespaces]]
 # binding = "KV"
-# id = "local-kv-placeholder" # Real id required for deploy, Phase 3 only
-
+# id = "local-kv-placeholder-experimental"
