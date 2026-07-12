@@ -3,9 +3,11 @@ main = "src/index.ts"
 compatibility_date = "2024-07-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Phase 1 scope: high-priority sync path does NOT need Queues (per DESIGN-DOC Phasing)
-# Queues are Phase 3 (low-priority batch). Keep commented as placeholder for Phase 3.
-# To enable Phase 3, uncomment and run: wrangler queues create slack-webhook
+# Phase 1 scope per DESIGN-DOC Implementation Plan:
+# - Input I/O + Decoder + Router + render + transmit (direct, no DO/Queues/KV)
+# Phase 1 can work without DO/Queues/KV (pure sync)
+# DO (Phase 2), Queues + KV (Phase 3) kept commented as placeholders
+
 # [[queues.producers]]
 # queue = "slack-webhook"
 # binding = "Q_SLACK"
@@ -15,16 +17,13 @@ compatibility_flags = ["nodejs_compat"]
 # max_batch_timeout = 60
 # max_retries = 3
 
-[durable_objects]
-bindings = [
-  { name = "COORDINATOR", class_name = "CoordinatorDO" }
-]
+# [durable_objects]
+# bindings = [{ name = "COORDINATOR", class_name = "CoordinatorDO" }]
+# [[migrations]]
+# tag = "v1"
+# new_classes = ["CoordinatorDO"]
 
-[[migrations]]
-tag = "v1"
-new_classes = ["CoordinatorDO"]
-
-[[kv_namespaces]]
-binding = "KV"
-id = "local-kv-placeholder"
+# [[kv_namespaces]]
+# binding = "KV"
+# id = "local-kv-placeholder" # Real id required for deploy, Phase 3 only
 
