@@ -101,6 +101,8 @@ export interface Env {
   PHASE1_WEBHOOK_URL?: string;
   COORDINATOR?: DurableObjectNamespace;
   HTTP_WEBHOOK_QUEUE?: Queue<QueueEnvelope>;
+  ALPHA_BATCH_WEBHOOK_QUEUE?: Queue<QueueEnvelope>;
+  COLD_PATH_KV?: KVNamespace;
 }
 
 export interface InternalEvent {
@@ -203,5 +205,7 @@ export interface AdapterContext {
 export interface ChannelAdapter {
   readonly id: string;
   readonly config: AdapterConfig;
+  readonly supportsBatch?: boolean;
   render(message: InternalPushMessage, context: AdapterContext): Promise<TransportRequest>;
+  renderBatch?(message: InternalPushMessage, context: AdapterContext): Promise<TransportRequest>;
 }

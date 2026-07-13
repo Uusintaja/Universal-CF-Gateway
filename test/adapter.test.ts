@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { JsonWebhookAdapter } from "../src/adapters";
+import { AlphaBatchWebhookAdapter, JsonWebhookAdapter } from "../src/adapters";
 import type { InternalPushMessage } from "../src/types";
 
 const message: InternalPushMessage = {
@@ -41,5 +41,34 @@ describe("JSON webhook adapter", () => {
         body: message.items[0].raw_payload.bytes,
       },
     });
+  });
+});
+
+describe("Alpha batch webhook adapter", () => {
+  it("renders a batch envelope while preserving each raw payload as Base64", async () => {
+    const adapter = new AlphaBatchWebhookAdapter();
+    const batch = {
+      ...message,
+      target_adapter: "alpha-batch-webhook",
+      items: [message.items[0], {
+        ...message.items[0],
+        event_id: "123e4567-e89b-42d3-a456-426614174001",
+        raw_payload: {
+          bytes: new TextEncoder().encode('{"second":true}'),
+          content_type: "application/json",
+        },
+      }],
+    };
+    const rendered = await adapter.renderBatch(batch, {
+      secrets: { endpoint: "https://channel.invalid/batch" },
+      config: adapter.config,
+    });
+    const body = JSON.parse(String(rendered.request.body)) as { adapter: string; items: Array<{ raw_payload: { encoding: string; bytes: string } }> };
+
+    expect(rendered.request.url).toBe("https://channel.invalid/batch");
+    expect(body.adapter).toBe("alpha-batch-webhook");
+    expect(body.items).toHaveLength(2);
+    expect(body.items[0].raw_payload.encoding).toBe("base64");
+    expect(new TextDecoder().decode(Uint8Array.from(atob(body.items[1].raw_payload.bytes), (char) => char.charCodeAt(0)))).toBe('{"second":true}');
   });
 });

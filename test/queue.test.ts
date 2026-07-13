@@ -53,6 +53,49 @@ describe("Phase 3A Queue path", () => {
     expect(new TextDecoder().decode(Uint8Array.from(atob(messages[0].raw_payload.bytes), (char) => char.charCodeAt(0)))).toContain('"ok":true');
   });
 
+  it("enqueues a batch-adapter event to its alpha-specific Queue", async () => {
+    const messages: QueueEnvelope[] = [];
+    const queue: Queue<QueueEnvelope> = {
+      send: async (message) => { messages.push(message); },
+      sendBatch: async () => undefined,
+    };
+    const response = await handleRequest(new Request("https://gateway.test/hooks/phase3-batch-test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ event_type: "notification", severity: "low", title: "Batch queued", body: { ok: true } }),
+    }), { ALPHA_BATCH_WEBHOOK_QUEUE: queue });
+
+    expect(response.status).toBe(202);
+    expect(messages[0].adapter_id).toBe("alpha-batch-webhook");
+  });
+
+  it("merges two Queue messages for a batch-capable adapter and acks both", async () => {
+    const first = toQueueEnvelope(event(), "alpha-batch-webhook");
+    const second = toQueueEnvelope(event(), "alpha-batch-webhook");
+    second.event_id = "queue-event-2";
+    const batch = createMessageBatch<QueueEnvelope>("universal-cf-gateway-alpha-batch-webhook", [
+      { id: "batch-message-1", timestamp: new Date(), attempts: 1, body: first },
+      { id: "batch-message-2", timestamp: new Date(), attempts: 1, body: second },
+    ]);
+    const ctx = createExecutionContext();
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { adapter: string; items: unknown[] };
+      expect(body.adapter).toBe("alpha-batch-webhook");
+      expect(body.items).toHaveLength(2);
+      return new Response("accepted", { status: 202 });
+    });
+
+    await processQueueBatch(batch, { PHASE1_WEBHOOK_URL: "https://channel.invalid/batch" }, ctx, {
+      coordinator: coordinator(),
+      fetchImpl,
+    });
+    const result = await getQueueResult(batch, ctx);
+
+    expect(result.explicitAcks.sort()).toEqual(["batch-message-1", "batch-message-2"]);
+    expect(result.retryMessages).toHaveLength(0);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("consumes a Queue message, sends it, and explicitly acks it", async () => {
     const envelope = toQueueEnvelope(event(), "http-webhook");
     const batch = createMessageBatch<QueueEnvelope>("universal-cf-gateway-alpha-http-webhook", [{

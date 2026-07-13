@@ -53,6 +53,14 @@ describe("router", () => {
     });
   });
 
+  it("routes the batch Adapter test event to the alpha batch Queue", () => {
+    expect(router.route(event({ source_id: "phase3-batch-test", event_type: "notification", severity: "low" }))).toEqual({
+      adapter_ids: ["alpha-batch-webhook"],
+      dispatch: "enqueue",
+      strategy: "all",
+    });
+  });
+
   it("returns null for an unmatched event", () => {
     expect(router.route(event({ source_id: "unknown", event_type: "unknown", severity: "info" }))).toBeNull();
   });

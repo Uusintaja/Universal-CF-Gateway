@@ -1,4 +1,14 @@
-import type { InternalEvent, InternalPushMessage, QueueEnvelope, RawPayload } from "./types";
+import type { InternalEvent, InternalPushMessage, QueueEnvelope, RawPayload, Severity } from "./types";
+
+export const QUEUE_PUSH_LIMITS = {
+  MAX_ITEMS_PER_MESSAGE: 50,
+  MAX_BYTES_PER_MESSAGE: 24_000,
+} as const;
+
+export interface QueuePushChunk {
+  message: InternalPushMessage;
+  envelopes: QueueEnvelope[];
+}
 
 export function encodeBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -46,23 +56,70 @@ export function rawPayloadFromEnvelope(envelope: QueueEnvelope): RawPayload {
   };
 }
 
-export function pushMessageFromEnvelope(envelope: QueueEnvelope): InternalPushMessage {
+function severityRank(severity: Severity): number {
+  return { critical: 5, high: 4, medium: 3, low: 2, info: 1 }[severity];
+}
+
+function maxSeverity(envelopes: QueueEnvelope[]): Severity {
+  return envelopes.reduce((max, envelope) => severityRank(envelope.severity) > severityRank(max) ? envelope.severity : max, "info" as Severity);
+}
+
+function itemFromEnvelope(envelope: QueueEnvelope) {
   return {
-    schema_version: "1.0",
-    message_id: envelope.event_id,
-    target_adapter: envelope.adapter_id,
+    event_id: envelope.event_id,
+    title: envelope.title,
+    body: envelope.body,
+    raw_payload: rawPayloadFromEnvelope(envelope),
     severity: envelope.severity,
-    items: [{
-      event_id: envelope.event_id,
-      title: envelope.title,
-      body: envelope.body,
-      raw_payload: rawPayloadFromEnvelope(envelope),
-      severity: envelope.severity,
-      timestamp: envelope.timestamp,
-      trace: envelope.trace,
-    }],
-    chunk: { index: 0, total: 1 },
-    attempt: 0,
-    created_at: envelope.created_at,
+    timestamp: envelope.timestamp,
+    trace: envelope.trace,
   };
+}
+
+function estimateEnvelopeBytes(envelope: QueueEnvelope): number {
+  return envelope.raw_payload.bytes.length + JSON.stringify(envelope.body).length + 512;
+}
+
+function makeChunk(envelopes: QueueEnvelope[], index: number, total: number): QueuePushChunk {
+  const items = envelopes.map(itemFromEnvelope);
+  return {
+    envelopes,
+    message: {
+      schema_version: "1.0",
+      message_id: `batch:${envelopes.map((envelope) => envelope.event_id).join(",")}`,
+      target_adapter: envelopes[0].adapter_id,
+      severity: maxSeverity(envelopes),
+      items,
+      chunk: { index, total },
+      attempt: 0,
+      created_at: envelopes[0].created_at,
+    },
+  };
+}
+
+export function buildPushChunks(envelopes: QueueEnvelope[], supportsBatch: boolean): QueuePushChunk[] {
+  if (envelopes.length === 0) return [];
+  if (!supportsBatch) return envelopes.map((envelope, index) => makeChunk([envelope], index, envelopes.length));
+
+  const groups: QueueEnvelope[][] = [];
+  let current: QueueEnvelope[] = [];
+  let currentBytes = 0;
+  for (const envelope of envelopes) {
+    const size = estimateEnvelopeBytes(envelope);
+    const wouldExceedItems = current.length >= QUEUE_PUSH_LIMITS.MAX_ITEMS_PER_MESSAGE;
+    const wouldExceedBytes = current.length > 0 && currentBytes + size > QUEUE_PUSH_LIMITS.MAX_BYTES_PER_MESSAGE;
+    if (wouldExceedItems || wouldExceedBytes) {
+      groups.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(envelope);
+    currentBytes += size;
+  }
+  if (current.length > 0) groups.push(current);
+  return groups.map((group, index) => makeChunk(group, index, groups.length));
+}
+
+export function pushMessageFromEnvelope(envelope: QueueEnvelope): InternalPushMessage {
+  return makeChunk([envelope], 0, 1).message;
 }

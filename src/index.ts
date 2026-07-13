@@ -1,10 +1,10 @@
-import { JsonWebhookAdapter } from "./adapters";
+import { AlphaBatchWebhookAdapter, JsonWebhookAdapter } from "./adapters";
 import { genericJsonDecoder } from "./decoder";
 import { materializeHttp } from "./io";
 import { OUTPUT_IO_LIMITS, transmitHttp, type TransmitHttpOptions, type TransmitHttpResult } from "./output-io";
-import { pushMessageFromEnvelope, toQueueEnvelope } from "./queue";
+import { buildPushChunks, toQueueEnvelope } from "./queue";
 import { router } from "./router";
-import type { CoordinatorRpc, Env, InternalEvent, InternalPushMessage, QueueEnvelope, RequestMeta } from "./types";
+import type { ChannelAdapter, CoordinatorRpc, Env, InternalEvent, InternalPushMessage, QueueEnvelope, RequestMeta } from "./types";
 
 export { CoordinatorDO } from "./coordinator";
 export * from "./adapters";
@@ -18,6 +18,11 @@ export * from "./schema";
 export * from "./types";
 
 const phase1Adapter = new JsonWebhookAdapter("http-webhook");
+const alphaBatchAdapter = new AlphaBatchWebhookAdapter();
+const adapters = new Map<string, ChannelAdapter>([
+  [phase1Adapter.id, phase1Adapter],
+  [alphaBatchAdapter.id, alphaBatchAdapter],
+]);
 
 export interface WorkerDependencies extends Pick<TransmitHttpOptions, "fetchImpl" | "sleep"> {
   coordinator?: CoordinatorRpc;
@@ -74,6 +79,16 @@ function coordinatorFor(env: Env, dependencies: WorkerDependencies, adapterId: s
   return env.COORDINATOR.get(env.COORDINATOR.idFromName(adapterId)) as unknown as CoordinatorRpc;
 }
 
+function adapterFor(adapterId: string): ChannelAdapter | null {
+  return adapters.get(adapterId) ?? null;
+}
+
+function queueFor(env: Env, adapterId: string): Queue<QueueEnvelope> | null {
+  if (adapterId === phase1Adapter.id) return env.HTTP_WEBHOOK_QUEUE ?? null;
+  if (adapterId === alphaBatchAdapter.id) return env.ALPHA_BATCH_WEBHOOK_QUEUE ?? null;
+  return null;
+}
+
 export async function handleRequest(
   request: Request,
   env: Env,
@@ -112,13 +127,13 @@ export async function handleRequest(
   if (!route) return jsonResponse({ event: decoded, route: null }, 200);
 
   if (route.dispatch === "enqueue") {
-    if (route.adapter_ids.length !== 1 || route.adapter_ids[0] !== phase1Adapter.id) {
-      return jsonResponse({ error: "ADAPTER_NOT_IMPLEMENTED", route }, 501);
+    const adapterId = route.adapter_ids.length === 1 ? route.adapter_ids[0] : undefined;
+    const adapter = adapterId ? adapterFor(adapterId) : null;
+    const queue = adapterId ? queueFor(env, adapterId) : null;
+    if (!adapter || !queue) {
+      return jsonResponse({ error: adapter ? "QUEUE_NOT_CONFIGURED" : "ADAPTER_NOT_IMPLEMENTED", route }, 503);
     }
-    if (!env.HTTP_WEBHOOK_QUEUE) {
-      return jsonResponse({ error: "QUEUE_NOT_CONFIGURED" }, 503);
-    }
-    await env.HTTP_WEBHOOK_QUEUE.send(toQueueEnvelope(decoded, phase1Adapter.id), { contentType: "json" });
+    await queue.send(toQueueEnvelope(decoded, adapter.id), { contentType: "json" });
     return jsonResponse({ status: "queued", event_id: decoded.event_id, route }, 202);
   }
 
@@ -213,71 +228,88 @@ export async function processQueueBatch(
   let sent = 0;
   let deduplicated = 0;
   let retried = 0;
+  const grouped = new Map<string, Array<{ message: Message<QueueEnvelope>; envelope: QueueEnvelope }>>();
 
   for (const message of batch.messages) {
-    const envelope = message.body;
-    if (envelope.adapter_id !== phase1Adapter.id) {
-      message.retry({ delaySeconds: 5 });
-      retried += 1;
-      continue;
-    }
-    if (!env.PHASE1_WEBHOOK_URL) {
-      message.retry({ delaySeconds: 5 });
-      retried += 1;
+    const group = grouped.get(message.body.adapter_id) ?? [];
+    group.push({ message, envelope: message.body });
+    grouped.set(message.body.adapter_id, group);
+  }
+
+  for (const [adapterId, entries] of grouped) {
+    const adapter = adapterFor(adapterId);
+    if (!adapter || !env.PHASE1_WEBHOOK_URL) {
+      entries.forEach(({ message }) => message.retry({ delaySeconds: 5 }));
+      retried += entries.length;
       continue;
     }
 
-    const coordinator = coordinatorFor(env, dependencies, envelope.adapter_id);
-    if (!coordinator) {
-      message.retry({ delaySeconds: 5 });
-      retried += 1;
-      continue;
-    }
+    const envelopes = entries.map((entry) => entry.envelope);
+    const chunks = buildPushChunks(envelopes, adapter.supportsBatch === true);
+    const messagesByEventId = new Map(entries.map((entry) => [entry.envelope.event_id, entry.message]));
 
-    const acquired = await coordinator.acquire({
-      event_ids: [envelope.event_id],
-      severity: envelope.severity,
-    });
-    if (!acquired.allowed) {
-      message.retry({ delaySeconds: 5 });
-      retried += 1;
-      continue;
-    }
-    if (!acquired.lease_id || acquired.to_send_ids.length === 0) {
-      message.ack();
-      deduplicated += 1;
-      continue;
-    }
+    for (const chunk of chunks) {
+      const sourceMessages = chunk.envelopes
+        .map((envelope) => messagesByEventId.get(envelope.event_id))
+        .filter((message): message is Message<QueueEnvelope> => message !== undefined);
+      const coordinator = coordinatorFor(env, dependencies, adapterId);
+      if (!coordinator) {
+        sourceMessages.forEach((message) => message.retry({ delaySeconds: 5 }));
+        retried += sourceMessages.length;
+        continue;
+      }
 
-    let result: TransmitHttpResult | undefined;
-    try {
-      const rendered = await phase1Adapter.render(pushMessageFromEnvelope(envelope), {
-        secrets: { endpoint: env.PHASE1_WEBHOOK_URL },
-        config: phase1Adapter.config,
+      const acquired = await coordinator.acquire({
+        event_ids: chunk.envelopes.map((envelope) => envelope.event_id),
+        severity: chunk.message.severity,
       });
-      result = await transmitHttp(rendered, {
-        fetchImpl: dependencies.fetchImpl,
-        sleep: dependencies.sleep,
-        timeoutMs: dependencies.timeoutMs ?? OUTPUT_IO_LIMITS.TIMEOUT_MS,
-        immediateRetries: dependencies.immediateRetries ?? OUTPUT_IO_LIMITS.IMMEDIATE_RETRIES,
-        backoffMs: dependencies.backoffMs ?? OUTPUT_IO_LIMITS.BACKOFF_MS,
-      });
-    } catch {
-      result = {
-        ok: false,
-        attempts: 1,
-        error: { code: "UNKNOWN", message: "Queue message transmit failed", retryable: true },
+      if (!acquired.allowed) {
+        sourceMessages.forEach((message) => message.retry({ delaySeconds: 5 }));
+        retried += sourceMessages.length;
+        continue;
+      }
+      if (!acquired.lease_id || acquired.to_send_ids.length === 0) {
+        sourceMessages.forEach((message) => message.ack());
+        deduplicated += sourceMessages.length;
+        continue;
+      }
+
+      const toSend = new Set(acquired.to_send_ids);
+      const messageToSend: InternalPushMessage = {
+        ...chunk.message,
+        items: chunk.message.items.filter((item) => toSend.has(item.event_id)),
       };
-    } finally {
-      await coordinator.release({ lease_id: acquired.lease_id, success: result?.ok === true });
-    }
+      let result: TransmitHttpResult | undefined;
+      try {
+        const rendered = adapter.supportsBatch && adapter.renderBatch
+          ? await adapter.renderBatch(messageToSend, { secrets: { endpoint: env.PHASE1_WEBHOOK_URL }, config: adapter.config })
+          : await adapter.render(messageToSend, { secrets: { endpoint: env.PHASE1_WEBHOOK_URL }, config: adapter.config });
+        if (rendered.transport !== "http") throw new Error("Phase 3A requires an HTTP transport");
+        // Queue retries are the outer retry mechanism; avoid multiplying retries here.
+        result = await transmitHttp(rendered, {
+          fetchImpl: dependencies.fetchImpl,
+          sleep: dependencies.sleep,
+          timeoutMs: dependencies.timeoutMs ?? OUTPUT_IO_LIMITS.TIMEOUT_MS,
+          immediateRetries: 0,
+          backoffMs: 0,
+        });
+      } catch (error) {
+        result = {
+          ok: false,
+          attempts: 1,
+          error: { code: "UNKNOWN", message: error instanceof Error ? error.message : "Queue message transmit failed", retryable: true },
+        };
+      } finally {
+        await coordinator.release({ lease_id: acquired.lease_id, success: result?.ok === true });
+      }
 
-    if (result.ok) {
-      message.ack();
-      sent += 1;
-    } else {
-      message.retry({ delaySeconds: 5 });
-      retried += 1;
+      if (result.ok) {
+        sourceMessages.forEach((message) => message.ack());
+        sent += sourceMessages.length;
+      } else {
+        sourceMessages.forEach((message) => message.retry({ delaySeconds: 5 }));
+        retried += sourceMessages.length;
+      }
     }
   }
 
