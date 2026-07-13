@@ -47,11 +47,10 @@ bindings = [
 tag = "v1"
 new_sqlite_classes = ["CoordinatorDO"]
 
-# KV for cold query cache - Phase 3B, keep placeholder commented until 3B
-# To enable Phase 3B, uncomment and create: wrangler kv:namespace create KV_EXPERIMENTAL --preview false
-# [[kv_namespaces]]
-# binding = "KV"
-# id = "local-kv-placeholder-experimental"
+# KV for cold query cache - Phase 3B - now enabled with real id per user creation
+[[kv_namespaces]]
+binding = "KV"
+id = "e7e370065f37457f8cebb76550ad8a59"
 
 [observability.logs]
 enabled = true
