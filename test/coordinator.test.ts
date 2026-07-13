@@ -80,6 +80,27 @@ describe("CoordinatorDO", () => {
     expect(status.lane_usage).toEqual({ high_exclusive: 0, low_exclusive: 0, elastic: 0 });
   });
 
+  it("archives and queries cold-path records in the DO", async () => {
+    const coordinator = coordinatorFor("cold-path");
+    const archived = await coordinator.archiveColdPath({
+      kind: "dlq",
+      adapter: "alpha-batch-webhook",
+      reason: "upstream failed",
+      attempts: 4,
+      event_id: "cold-event-1",
+      source_id: "phase3-test",
+      payload: { failed: true },
+      raw_payload: { encoding: "base64", bytes: "eA==", content_type: "application/json" },
+      trace: { gateway_trace: "trace-cold" },
+      received_at: "2026-07-12T00:00:00.000Z",
+    });
+
+    expect(archived.key).toContain("coldpath:dlq:alpha-batch-webhook:");
+    await expect(coordinator.queryColdPath({ kind: "dlq", adapter: "alpha-batch-webhook", since: "2026-07-11T00:00:00.000Z", limit: 10 })).resolves.toMatchObject({
+      entries: [{ event_id: "cold-event-1", raw_payload: { encoding: "base64", bytes: "eA==" } }],
+    });
+  });
+
   it("opens the circuit after three failures and closes it after a successful probe", async () => {
     const coordinator = coordinatorFor("circuit");
     for (let index = 0; index < 3; index += 1) {

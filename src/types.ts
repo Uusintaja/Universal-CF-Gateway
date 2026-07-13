@@ -69,11 +69,45 @@ export interface CoordinatorStatus {
   delivered_marker_ttl_sec: number;
 }
 
+export type ColdPathKind = "dlq" | "drop" | "unmatched";
+
+export interface ColdPathEntry {
+  kind: ColdPathKind;
+  adapter?: string;
+  reason: string;
+  attempts?: number;
+  event_id?: string;
+  source_id?: string;
+  payload: unknown;
+  raw_payload?: {
+    encoding: "base64";
+    bytes: string;
+    content_type?: string;
+  };
+  trace?: TraceRef;
+  received_at: string;
+}
+
+export interface ColdPathQuery {
+  kind?: ColdPathKind;
+  adapter?: string;
+  since: string;
+  limit: number;
+  cursor?: string;
+}
+
+export interface ColdPathQueryResult {
+  entries: Array<ColdPathEntry & { key: string }>;
+  nextCursor?: string;
+}
+
 export interface CoordinatorRpc {
   acquire(input: AcquireInput): Promise<AcquireResult>;
   release(input: ReleaseInput): Promise<void>;
   status(): Promise<CoordinatorStatus>;
   checkDelivered(eventIds: string[]): Promise<{ delivered: string[]; not_delivered: string[] }>;
+  archiveColdPath(entry: ColdPathEntry): Promise<{ key: string }>;
+  queryColdPath(query: ColdPathQuery): Promise<ColdPathQueryResult>;
 }
 
 export interface QueueEnvelope {

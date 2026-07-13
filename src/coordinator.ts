@@ -2,6 +2,9 @@ import { DurableObject } from "cloudflare:workers";
 import type {
   AcquireInput,
   AcquireResult,
+  ColdPathEntry,
+  ColdPathQuery,
+  ColdPathQueryResult,
   CoordinatorRpc,
   CoordinatorStatus,
   Env,
@@ -206,6 +209,29 @@ export class CoordinatorDO extends DurableObject implements CoordinatorRpc {
       delivered,
       not_delivered: uniqueIds.filter((eventId) => !delivered.includes(eventId)),
     };
+  }
+
+  async archiveColdPath(entry: ColdPathEntry): Promise<{ key: string }> {
+    const adapter = entry.adapter ?? "unmatched";
+    const key = `coldpath:${entry.kind}:${adapter}:${crypto.randomUUID()}`;
+    await this.state.storage.put(key, entry);
+    return { key };
+  }
+
+  async queryColdPath(query: ColdPathQuery): Promise<ColdPathQueryResult> {
+    const prefix = query.kind
+      ? `coldpath:${query.kind}:${query.adapter ?? ""}`
+      : "coldpath:";
+    const stored = await this.state.storage.list<ColdPathEntry>({
+      prefix,
+      startAfter: query.cursor,
+      limit: Math.max(1, Math.min(query.limit, 100)),
+    });
+    const entries = [...stored.entries()]
+      .filter(([, entry]) => entry.received_at >= query.since)
+      .map(([key, entry]) => ({ ...entry, key }));
+    const nextCursor = stored.size >= query.limit ? [...stored.keys()].at(-1) : undefined;
+    return { entries, nextCursor };
   }
 
   async fetch(): Promise<Response> {

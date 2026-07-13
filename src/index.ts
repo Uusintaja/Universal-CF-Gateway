@@ -4,7 +4,7 @@ import { materializeHttp } from "./io";
 import { OUTPUT_IO_LIMITS, transmitHttp, type TransmitHttpOptions, type TransmitHttpResult } from "./output-io";
 import { buildPushChunks, toQueueEnvelope } from "./queue";
 import { router } from "./router";
-import type { ChannelAdapter, CoordinatorRpc, Env, InternalEvent, InternalPushMessage, QueueEnvelope, RequestMeta } from "./types";
+import type { ChannelAdapter, ColdPathEntry, CoordinatorRpc, Env, InternalEvent, InternalPushMessage, QueueEnvelope, RequestMeta } from "./types";
 
 export { CoordinatorDO } from "./coordinator";
 export * from "./adapters";
@@ -219,15 +219,76 @@ export async function handleRequest(
   });
 }
 
+export const QUEUE_MAX_ATTEMPTS = 4;
+
+export function queueRetryDelay(attempts: number, random = Math.random): number {
+  const exponent = Math.max(0, attempts - 1);
+  const base = Math.min(5 * 3 ** exponent, 45);
+  return base + Math.floor(random() * 3);
+}
+
+function coldPathEntry(envelope: QueueEnvelope, kind: ColdPathEntry["kind"], reason: string, attempts: number): ColdPathEntry {
+  return {
+    kind,
+    adapter: envelope.adapter_id,
+    reason,
+    attempts,
+    event_id: envelope.event_id,
+    source_id: envelope.source_id,
+    payload: envelope.body,
+    raw_payload: envelope.raw_payload,
+    trace: envelope.trace,
+    received_at: new Date().toISOString(),
+  };
+}
+
+async function archiveAndExport(entry: ColdPathEntry, coordinator: CoordinatorRpc, env: Env): Promise<void> {
+  const archived = await coordinator.archiveColdPath(entry);
+  if (!env.COLD_PATH_KV) return;
+  try {
+    await env.COLD_PATH_KV.put(archived.key, JSON.stringify(entry), { expirationTtl: 7 * 24 * 60 * 60 });
+  } catch (error) {
+    console.warn(JSON.stringify({
+      level: "warn",
+      event: "coldpath_kv_export_failed",
+      key: archived.key,
+      error: error instanceof Error ? error.message : "KV export failed",
+    }));
+  }
+}
+
+function retryMessages(messages: Message<QueueEnvelope>[], attempts: number): void {
+  const delaySeconds = queueRetryDelay(attempts);
+  messages.forEach((message) => message.retry({ delaySeconds }));
+}
+
+function ackAndArchive(
+  messages: Message<QueueEnvelope>[],
+  entries: QueueEnvelope[],
+  kind: ColdPathEntry["kind"],
+  reason: string,
+  ctx: ExecutionContext,
+  coordinator: CoordinatorRpc,
+  env: Env,
+): void {
+  messages.forEach((message) => message.ack());
+  ctx.waitUntil(Promise.all(entries.map((envelope) => archiveAndExport(
+    coldPathEntry(envelope, kind, reason, messages.find((message) => message.body.event_id === envelope.event_id)?.attempts ?? 1),
+    coordinator,
+    env,
+  ))));
+}
+
 export async function processQueueBatch(
   batch: MessageBatch<QueueEnvelope>,
   env: Env,
-  _ctx: ExecutionContext,
+  ctx: ExecutionContext,
   dependencies: WorkerDependencies = {},
 ): Promise<void> {
   let sent = 0;
   let deduplicated = 0;
   let retried = 0;
+  let archived = 0;
   const grouped = new Map<string, Array<{ message: Message<QueueEnvelope>; envelope: QueueEnvelope }>>();
 
   for (const message of batch.messages) {
@@ -238,8 +299,9 @@ export async function processQueueBatch(
 
   for (const [adapterId, entries] of grouped) {
     const adapter = adapterFor(adapterId);
-    if (!adapter || !env.PHASE1_WEBHOOK_URL) {
-      entries.forEach(({ message }) => message.retry({ delaySeconds: 5 }));
+    const coordinator = coordinatorFor(env, dependencies, adapterId);
+    if (!adapter || !coordinator || !env.PHASE1_WEBHOOK_URL) {
+      entries.forEach(({ message }) => message.retry({ delaySeconds: queueRetryDelay(message.attempts) }));
       retried += entries.length;
       continue;
     }
@@ -252,20 +314,20 @@ export async function processQueueBatch(
       const sourceMessages = chunk.envelopes
         .map((envelope) => messagesByEventId.get(envelope.event_id))
         .filter((message): message is Message<QueueEnvelope> => message !== undefined);
-      const coordinator = coordinatorFor(env, dependencies, adapterId);
-      if (!coordinator) {
-        sourceMessages.forEach((message) => message.retry({ delaySeconds: 5 }));
-        retried += sourceMessages.length;
-        continue;
-      }
-
+      const maxAttempts = Math.max(...sourceMessages.map((message) => message.attempts), 1);
       const acquired = await coordinator.acquire({
         event_ids: chunk.envelopes.map((envelope) => envelope.event_id),
         severity: chunk.message.severity,
       });
+
       if (!acquired.allowed) {
-        sourceMessages.forEach((message) => message.retry({ delaySeconds: 5 }));
-        retried += sourceMessages.length;
+        if (maxAttempts >= QUEUE_MAX_ATTEMPTS) {
+          ackAndArchive(sourceMessages, chunk.envelopes, "dlq", acquired.reason, ctx, coordinator, env);
+          archived += sourceMessages.length;
+        } else {
+          retryMessages(sourceMessages, maxAttempts);
+          retried += sourceMessages.length;
+        }
         continue;
       }
       if (!acquired.lease_id || acquired.to_send_ids.length === 0) {
@@ -284,7 +346,7 @@ export async function processQueueBatch(
         const rendered = adapter.supportsBatch && adapter.renderBatch
           ? await adapter.renderBatch(messageToSend, { secrets: { endpoint: env.PHASE1_WEBHOOK_URL }, config: adapter.config })
           : await adapter.render(messageToSend, { secrets: { endpoint: env.PHASE1_WEBHOOK_URL }, config: adapter.config });
-        if (rendered.transport !== "http") throw new Error("Phase 3A requires an HTTP transport");
+        if (rendered.transport !== "http") throw new Error("Queue Adapter must use HTTP transport");
         // Queue retries are the outer retry mechanism; avoid multiplying retries here.
         result = await transmitHttp(rendered, {
           fetchImpl: dependencies.fetchImpl,
@@ -297,7 +359,7 @@ export async function processQueueBatch(
         result = {
           ok: false,
           attempts: 1,
-          error: { code: "UNKNOWN", message: error instanceof Error ? error.message : "Queue message transmit failed", retryable: true },
+          error: { code: "INVALID_MESSAGE", message: error instanceof Error ? error.message : "Queue Adapter failed", retryable: false },
         };
       } finally {
         await coordinator.release({ lease_id: acquired.lease_id, success: result?.ok === true });
@@ -306,9 +368,17 @@ export async function processQueueBatch(
       if (result.ok) {
         sourceMessages.forEach((message) => message.ack());
         sent += sourceMessages.length;
-      } else {
-        sourceMessages.forEach((message) => message.retry({ delaySeconds: 5 }));
+        continue;
+      }
+
+      const reason = result.error.message;
+      if (result.error.retryable && maxAttempts < QUEUE_MAX_ATTEMPTS) {
+        retryMessages(sourceMessages, maxAttempts);
         retried += sourceMessages.length;
+      } else {
+        const kind = result.error.retryable ? "dlq" : "drop";
+        ackAndArchive(sourceMessages, chunk.envelopes, kind, reason, ctx, coordinator, env);
+        archived += sourceMessages.length;
       }
     }
   }
@@ -321,6 +391,7 @@ export async function processQueueBatch(
     sent,
     deduplicated,
     retried,
+    archived,
   }));
 }
 

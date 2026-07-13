@@ -1,6 +1,6 @@
 import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
-import { handleRequest, processQueueBatch } from "../src/index";
+import { handleRequest, processQueueBatch, queueRetryDelay } from "../src/index";
 import { toQueueEnvelope } from "../src/queue";
 import type { CoordinatorRpc, Env, InternalEvent, QueueEnvelope } from "../src/types";
 
@@ -30,6 +30,8 @@ function coordinator(): CoordinatorRpc {
     release: async () => undefined,
     status: async () => ({ circuit: "closed", consecutive_failures: 0, lane_usage: { high_exclusive: 0, low_exclusive: 0, elastic: 0 }, delivered_marker_count: 0, delivered_marker_ttl_sec: 1000 }),
     checkDelivered: async () => ({ delivered: [], not_delivered: [] }),
+    archiveColdPath: async () => ({ key: "coldpath:test" }),
+    queryColdPath: async () => ({ entries: [] }),
   };
 }
 
@@ -94,6 +96,64 @@ describe("Phase 3A Queue path", () => {
     expect(result.explicitAcks.sort()).toEqual(["batch-message-1", "batch-message-2"]);
     expect(result.retryMessages).toHaveLength(0);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses bounded exponential retry delays", () => {
+    expect(queueRetryDelay(1, () => 0)).toBe(5);
+    expect(queueRetryDelay(2, () => 0)).toBe(15);
+    expect(queueRetryDelay(3, () => 0)).toBe(45);
+    expect(queueRetryDelay(4, () => 0)).toBe(45);
+  });
+
+  it("retries a transient Queue delivery failure", async () => {
+    const envelope = toQueueEnvelope(event(), "http-webhook");
+    const batch = createMessageBatch<QueueEnvelope>("universal-cf-gateway-alpha-http-webhook", [{
+      id: "retry-message-1",
+      timestamp: new Date(),
+      attempts: 1,
+      body: envelope,
+    }]);
+    const ctx = createExecutionContext();
+    const fetchImpl = vi.fn(async () => new Response("upstream down", { status: 503 }));
+
+    await processQueueBatch(batch, { PHASE1_WEBHOOK_URL: "https://channel.invalid/hook" }, ctx, {
+      coordinator: coordinator(),
+      fetchImpl,
+    });
+    const result = await getQueueResult(batch, ctx);
+
+    expect(result.explicitAcks).toHaveLength(0);
+    expect(result.retryMessages).toMatchObject([{ msgId: "retry-message-1" }]);
+  });
+
+  it("acks and archives a retry-exhausted Queue message", async () => {
+    const envelope = toQueueEnvelope(event(), "http-webhook");
+    const batch = createMessageBatch<QueueEnvelope>("universal-cf-gateway-alpha-http-webhook", [{
+      id: "dlq-message-1",
+      timestamp: new Date(),
+      attempts: 4,
+      body: envelope,
+    }]);
+    const ctx = createExecutionContext();
+    const archived: unknown[] = [];
+    const coordinatorWithArchive: CoordinatorRpc = {
+      ...coordinator(),
+      archiveColdPath: async (entry) => {
+        archived.push(entry);
+        return { key: "coldpath:dlq:http-webhook:test" };
+      },
+    };
+    const fetchImpl = vi.fn(async () => new Response("upstream down", { status: 503 }));
+
+    await processQueueBatch(batch, { PHASE1_WEBHOOK_URL: "https://channel.invalid/hook" }, ctx, {
+      coordinator: coordinatorWithArchive,
+      fetchImpl,
+    });
+    const result = await getQueueResult(batch, ctx);
+
+    expect(result.explicitAcks).toEqual(["dlq-message-1"]);
+    expect(result.retryMessages).toHaveLength(0);
+    expect(archived).toMatchObject([{ kind: "dlq", attempts: 4, event_id: "queue-event-1" }]);
   });
 
   it("consumes a Queue message, sends it, and explicitly acks it", async () => {
