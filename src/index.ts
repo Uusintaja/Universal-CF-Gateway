@@ -67,7 +67,7 @@ export default {
           return jsonResponse({ error: 'No COORDINATOR binding', has_COORDINATOR: false }, 501);
         }
         try {
-          const stub = env.COORDINATOR.get(env.COORDINATOR.idFromString('status-check'));
+          const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName('status-check'));
           let status: any;
           if (typeof stub.status === 'function') {
             status = await stub.status();
@@ -149,7 +149,7 @@ export default {
 
       if (env?.COORDINATOR) {
         try {
-          coordinatorStub = env.COORDINATOR.get(env.COORDINATOR.idFromString(adapterId));
+          coordinatorStub = env.COORDINATOR.get(env.COORDINATOR.idFromName(adapterId));
           const acquireRes: any = await coordinatorStub.acquire({
             event_ids: [internalEvent.event_id],
             severity: internalEvent.severity,
