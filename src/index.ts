@@ -4,6 +4,7 @@ import { materializeHttp } from "./io";
 import { OUTPUT_IO_LIMITS, transmitHttp, type TransmitHttpOptions, type TransmitHttpResult } from "./output-io";
 import { buildPushChunks, toQueueEnvelope } from "./queue";
 import { router } from "./router";
+import { resolveSource } from "./source";
 import type { ChannelAdapter, ColdPathEntry, CoordinatorRpc, Env, InternalEvent, InternalPushMessage, QueueEnvelope, RequestMeta } from "./types";
 
 export { CoordinatorDO } from "./coordinator";
@@ -15,6 +16,7 @@ export * from "./output-io";
 export * from "./queue";
 export * from "./router";
 export * from "./schema";
+export * from "./source";
 export * from "./types";
 
 const phase1Adapter = new JsonWebhookAdapter("http-webhook");
@@ -26,6 +28,9 @@ const adapters = new Map<string, ChannelAdapter>([
 
 export interface WorkerDependencies extends Pick<TransmitHttpOptions, "fetchImpl" | "sleep"> {
   coordinator?: CoordinatorRpc;
+  sourceLimiter?: RateLimit;
+  globalLimiter?: RateLimit;
+  requireRateLimit?: boolean;
   timeoutMs?: number;
   immediateRetries?: number;
   backoffMs?: number;
@@ -38,12 +43,31 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
-function sourceFromRequest(request: Request): string | null {
-  const headerSource = request.headers.get("x-gateway-source");
-  if (headerSource?.trim()) return headerSource.trim();
+async function enforceRateLimit(
+  request: Request,
+  env: Env,
+  dependencies: WorkerDependencies,
+  resolution: ReturnType<typeof resolveSource>,
+): Promise<Response | null> {
+  const limiter = resolution.ok
+    ? dependencies.sourceLimiter ?? env.ALPHA_SOURCE_LIMITER
+    : dependencies.globalLimiter ?? env.ALPHA_GLOBAL_LIMITER;
+  if (!limiter) {
+    if (dependencies.requireRateLimit) return jsonResponse({ error: "RATE_LIMITER_NOT_CONFIGURED" }, 503);
+    return null;
+  }
 
-  const segments = new URL(request.url).pathname.split("/").filter(Boolean);
-  return segments[0] === "hooks" && segments[1] ? segments[1] : null;
+  const { success } = await limiter.limit({ key: resolution.key });
+  console.log(JSON.stringify({
+    level: success ? "info" : "warn",
+    event: "rate_limit_result",
+    allowed: success,
+    key_strategy: resolution.keyStrategy,
+    status: success ? 200 : 429,
+    path: new URL(request.url).pathname,
+  }));
+  if (!success) return jsonResponse({ error: "RATE_LIMITED" }, 429);
+  return null;
 }
 
 function toPushMessage(event: InternalEvent, adapterId: string): InternalPushMessage {
@@ -96,8 +120,11 @@ export async function handleRequest(
 ): Promise<Response> {
   if (request.method !== "POST") return jsonResponse({ error: "METHOD_NOT_ALLOWED" }, 405);
 
-  const sourceId = sourceFromRequest(request);
-  if (!sourceId) return jsonResponse({ error: "SOURCE_REQUIRED" }, 400);
+  const sourceResolution = resolveSource(request);
+  const rateLimitResponse = await enforceRateLimit(request, env, dependencies, sourceResolution);
+  if (rateLimitResponse) return rateLimitResponse;
+  if (!sourceResolution.ok) return jsonResponse({ error: sourceResolution.code }, sourceResolution.status);
+  const sourceId = sourceResolution.source.id;
 
   const receivedAt = new Date().toISOString();
   let rawInput;
@@ -406,7 +433,7 @@ export async function processQueueBatch(
 
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
-    return handleRequest(request, env);
+    return handleRequest(request, env, { requireRateLimit: true });
   },
   queue(batch: MessageBatch<QueueEnvelope>, env: Env, ctx: ExecutionContext): Promise<void> {
     return processQueueBatch(batch, env, ctx);

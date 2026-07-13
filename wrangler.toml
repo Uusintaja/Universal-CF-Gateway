@@ -3,6 +3,22 @@ main = "src/index.ts"
 compatibility_date = "2026-03-10"
 workers_dev = true
 
+[[ratelimits]]
+name = "ALPHA_SOURCE_LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
+[[ratelimits]]
+name = "ALPHA_GLOBAL_LIMITER"
+namespace_id = "1002"
+
+  [ratelimits.simple]
+  limit = 1000
+  period = 60
+
 [[queues.producers]]
 binding = "HTTP_WEBHOOK_QUEUE"
 queue = "universal-cf-gateway-alpha-http-webhook"

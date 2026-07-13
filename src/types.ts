@@ -137,6 +137,8 @@ export interface Env {
   HTTP_WEBHOOK_QUEUE?: Queue<QueueEnvelope>;
   ALPHA_BATCH_WEBHOOK_QUEUE?: Queue<QueueEnvelope>;
   COLD_PATH_KV?: KVNamespace;
+  ALPHA_SOURCE_LIMITER?: RateLimit;
+  ALPHA_GLOBAL_LIMITER?: RateLimit;
 }
 
 export interface InternalEvent {
