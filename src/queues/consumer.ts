@@ -17,12 +17,19 @@ type MessageBatch<T> = {
 
 const MAX_RETRIES = 3;
 
+function backoffDelay(attempts: number, base = 5): number {
+  // Exponential + jitter: base * 2^(attempts-1) + random 0-2s, capped at 60s
+  const exp = base * Math.pow(2, attempts - 1);
+  const jitter = Math.random() * 2;
+  return Math.min(60, exp + jitter);
+}
+
 /**
- * Phase 3A Happy Path Consumer
- * - No retry, no cold path, only success path
- * - Batch-internal Map<PushMessage, Message[]> for ack tracing
- * - acquire -> to_send_ids -> render(subset) -> transmit -> release(true) -> ack
- * - For Phase 3B, will add lane_full/circuit_open retry, drop/archive
+ * Phase 3B: Retry + Cold Path
+ * - lane_full -> retry delay 10s
+ * - circuit_open -> retry delay circuitOpenSec (60s)
+ * - transmit 429/5xx retryable -> retry with backoff, attempts < MAX_RETRIES
+ * - non-retryable or exhausted -> ack + ctx.waitUntil(archiveColdPath DO authoritative + KV cache)
  */
 
 export async function handleQueueBatch(
@@ -32,16 +39,13 @@ export async function handleQueueBatch(
 ): Promise<void> {
   if (batch.messages.length === 0) return;
 
-  // Group events by target adapter (queue is per-adapter, but batch may still have mixed)
   const events = batch.messages.map((m) => m.body.event);
   const firstAdapter = batch.messages[0].body.route.adapter_ids[0] ?? 'email-mailchannels';
   const isEmail = firstAdapter.includes('email');
 
   const pushMessages = chunkByDualThreshold(events, firstAdapter, isEmail);
 
-  // Map PushMessage -> source Messages for ack tracing per §3.2
   const chunkMap = new Map<any, typeof batch.messages>();
-  // Simple mapping: for Happy Path, each PushMessage maps to all batch messages whose event_id in its items
   for (const pushMsg of pushMessages) {
     const related = batch.messages.filter((qm) => pushMsg.items.some((it) => it.event_id === qm.body.event.event_id));
     chunkMap.set(pushMsg, related);
@@ -65,19 +69,21 @@ export async function handleQueueBatch(
           adapter_id: adapterId
         });
         if (!acquireRes.allowed) {
-          // Happy Path: just log and skip, Phase 3B will handle retry
-          console.log(JSON.stringify({ level: 'warn', event: 'consumer_acquire_blocked_happy', adapter: adapterId, reason: acquireRes.reason }));
+          const related = chunkMap.get(pushMsg) ?? [];
+          const reason = acquireRes.reason;
+          const delay = reason === 'circuit_open' ? 60 : 10;
+          console.log(JSON.stringify({ level: 'warn', event: 'consumer_acquire_blocked_retry', adapter: adapterId, reason, delay }));
+          related.forEach((m) => m.retry({ delaySeconds: delay }));
           continue;
         }
         if (acquireRes.to_send_ids.length === 0) {
-          // All delivered -> ack skip
           const related = chunkMap.get(pushMsg) ?? [];
           related.forEach((m) => m.ack());
+          console.log(JSON.stringify({ level: 'info', event: 'consumer_dedup_skip', adapter: adapterId, count: related.length }));
           continue;
         }
         toSendIds = acquireRes.to_send_ids;
         lane = acquireRes.lane;
-        // Filter items to toSendIds subset
         pushMsg.items = pushMsg.items.filter((it) => toSendIds.includes(it.event_id));
       } catch (e: any) {
         console.log(JSON.stringify({ level: 'warn', event: 'consumer_acquire_failed_fallback', adapter: adapterId, error: e?.message }));
@@ -105,29 +111,107 @@ export async function handleQueueBatch(
         await coordinatorStub.release({ event_ids: toSendIds, lane, success: txRes.ok, adapter_id: adapterId }).catch(() => {});
       }
 
+      const related = chunkMap.get(pushMsg) ?? [];
+      const firstAttempts = related[0]?.attempts ?? 1;
+
       if (txRes.ok) {
-        const related = chunkMap.get(pushMsg) ?? [];
         related.forEach((m) => m.ack());
-        console.log(JSON.stringify({ level: 'info', event: 'consumer_happy_ack', adapter: adapterId, sent: toSendIds.length }));
+        console.log(JSON.stringify({ level: 'info', event: 'consumer_ack', adapter: adapterId, sent: toSendIds.length }));
       } else {
-        // Happy Path: no retry, just log; Phase 3B will handle retry/archive
-        console.log(JSON.stringify({ level: 'warn', event: 'consumer_happy_failed_no_retry', adapter: adapterId, error: txRes.error }));
-        // For 3A, still ack to avoid blocking? But per spec should retry, we keep as ack for happy path
-        const related = chunkMap.get(pushMsg) ?? [];
-        related.forEach((m) => m.ack());
+        const retryable = !!txRes.error?.retryable;
+        const shouldRetry = retryable && firstAttempts < MAX_RETRIES;
+
+        if (shouldRetry) {
+          const delay = backoffDelay(firstAttempts);
+          console.log(
+            JSON.stringify({
+              level: 'warn',
+              event: 'consumer_retry',
+              adapter: adapterId,
+              attempts: firstAttempts,
+              delay,
+              error: txRes.error
+            })
+          );
+          related.forEach((m) => m.retry({ delaySeconds: delay }));
+        } else {
+          // Exhausted or non-retryable -> ack + archive cold path (DO authoritative + KV cache)
+          related.forEach((m) => m.ack());
+          const kind = retryable ? 'dlq' : 'drop';
+          const entry = {
+            kind,
+            adapter: adapterId,
+            reason: txRes.error?.message ?? 'unknown',
+            attempts: firstAttempts,
+            payload: pushMsg,
+            received_at: new Date().toISOString()
+          };
+
+          if (coordinatorStub) {
+            ctx?.waitUntil?.(
+              (async () => {
+                try {
+                  await coordinatorStub.archiveColdPath(entry);
+                } catch (e: any) {
+                  console.log(JSON.stringify({ level: 'error', event: 'archiveColdPath_failed', error: e?.message }));
+                }
+                // KV cache export - best effort
+                if (env?.KV) {
+                  try {
+                    const key = `coldpath:${kind}:${adapterId}:${crypto.randomUUID()}`;
+                    await env.KV.put(key, JSON.stringify(entry), { expirationTtl: 7 * 24 * 3600 });
+                  } catch (e: any) {
+                    console.log(JSON.stringify({ level: 'warn', event: 'coldpath_kv_fail', kind, error: e?.message }));
+                  }
+                }
+              })()
+            );
+          } else {
+            // No DO, still try KV direct for local tests
+            ctx?.waitUntil?.(
+              (async () => {
+                if (env?.KV) {
+                  try {
+                    const key = `coldpath:${kind}:${adapterId}:${crypto.randomUUID()}`;
+                    await env.KV.put(key, JSON.stringify(entry), { expirationTtl: 7 * 24 * 3600 });
+                  } catch {}
+                }
+              })()
+            );
+          }
+
+          console.log(JSON.stringify({ level: 'error', event: `consumer_${kind}`, adapter: adapterId, reason: entry.reason, attempts: firstAttempts }));
+        }
       }
     } catch (e: any) {
       console.log(JSON.stringify({ level: 'error', event: 'consumer_render_failed', adapter: adapterId, error: e?.message }));
       const related = chunkMap.get(pushMsg) ?? [];
+      // Render failure -> non-retryable drop
       related.forEach((m) => m.ack());
       if (coordinatorStub && lane) {
         await coordinatorStub.release({ event_ids: toSendIds, lane, success: false, adapter_id: adapterId }).catch(() => {});
+      }
+      const entry = {
+        kind: 'drop' as const,
+        adapter: adapterId,
+        reason: `render_failed: ${e?.message}`,
+        attempts: related[0]?.attempts ?? 1,
+        payload: pushMsg,
+        received_at: new Date().toISOString()
+      };
+      if (coordinatorStub) {
+        ctx?.waitUntil?.(
+          (async () => {
+            try {
+              await coordinatorStub.archiveColdPath(entry);
+            } catch {}
+          })()
+        );
       }
     }
   }
 }
 
-// Cloudflare Workers Queue handler entry
 export default {
   async queue(batch: MessageBatch<QueuePayload>, env: any, ctx: any): Promise<void> {
     await handleQueueBatch(batch, env, ctx);
