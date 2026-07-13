@@ -25,7 +25,7 @@ bindings = [
 
 [[migrations]]
 tag = "v1"
-new_classes = ["CoordinatorDO"]
+new_sqlite_classes = ["CoordinatorDO"]
 
 # KV for cold query cache - Phase 3, keep placeholder commented
 # To enable Phase 3, uncomment and create: wrangler kv:namespace create KV_EXPERIMENTAL --preview false
