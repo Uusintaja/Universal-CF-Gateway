@@ -42,6 +42,50 @@ export default {
     // §2.1 Rate Limiting placeholder Phase 4
     // if (env.SOURCE_LIMITER) { const {success}=await env.SOURCE_LIMITER.limit({key: sourceId}); if(!success) return 429 }
 
+    const url = new URL(req.url);
+
+    // Debug endpoints for Phase2 smoke - allow GET without source_id
+    if (req.method === 'GET') {
+      if (url.pathname === '/debug' || url.pathname === '/debug/env') {
+        return jsonResponse({
+          has_COORDINATOR: !!env?.COORDINATOR,
+          has_KV: !!env?.KV,
+          has_Q_SLACK: !!env?.Q_SLACK_EXP || !!env?.Q_SLACK,
+          has_EMAIL: !!env?.EMAIL,
+          has_SECRETS: {
+            SLACK_WEBHOOK_URL: !!env?.SLACK_WEBHOOK_URL,
+            WEBHOOK_SITE_URL: !!env?.WEBHOOK_SITE_URL,
+            EMAIL_TO: !!env?.EMAIL_TO
+          },
+          worker_name: 'universal-cf-gateway-mvp-experimental',
+          wrangler_migration: 'new_sqlite_classes CoordinatorDO',
+          observability: { logs: true, traces: true }
+        });
+      }
+      if (url.pathname === '/status') {
+        if (!env?.COORDINATOR) {
+          return jsonResponse({ error: 'No COORDINATOR binding', has_COORDINATOR: false }, 501);
+        }
+        try {
+          const stub = env.COORDINATOR.get(env.COORDINATOR.idFromString('status-check'));
+          let status: any;
+          if (typeof stub.status === 'function') {
+            status = await stub.status();
+          } else {
+            const res = await stub.fetch(new Request('https://do/status'));
+            status = await res.json();
+          }
+          return jsonResponse({ ok: true, status });
+        } catch (e: any) {
+          return jsonResponse({ error: e?.message, stack: e?.stack }, 500);
+        }
+      }
+      return jsonResponse(
+        { error: 'Use POST /webhook/:source_id for events, GET /debug or /status for diagnostics', has_COORDINATOR: !!env?.COORDINATOR },
+        405
+      );
+    }
+
     if (req.method !== 'POST') {
       return jsonResponse({ error: 'Method Not Allowed, use POST', code: 'METHOD_NOT_ALLOWED' }, 405);
     }
