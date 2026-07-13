@@ -1,7 +1,7 @@
 import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { handleRequest, processQueueBatch, queueRetryDelay } from "../src/index";
-import { toQueueEnvelope } from "../src/queue";
+import { buildPushChunks, toQueueEnvelope } from "../src/queue";
 import type { CoordinatorRpc, Env, InternalEvent, QueueEnvelope } from "../src/types";
 
 function event(): InternalEvent {
@@ -98,6 +98,17 @@ describe("Phase 3A Queue path", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("splits a batch above the item limit", () => {
+    const envelopes = Array.from({ length: 51 }, (_, index) => toQueueEnvelope({ ...event(), event_id: `batch-event-${index}` }, "alpha-batch-webhook"));
+    const chunks = buildPushChunks(envelopes, true);
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].message.items).toHaveLength(50);
+    expect(chunks[1].message.items).toHaveLength(1);
+    expect(chunks[0].message.chunk).toEqual({ index: 0, total: 2 });
+    expect(chunks[1].message.chunk).toEqual({ index: 1, total: 2 });
+  });
+
   it("uses bounded exponential retry delays", () => {
     expect(queueRetryDelay(1, () => 0)).toBe(5);
     expect(queueRetryDelay(2, () => 0)).toBe(15);
@@ -154,6 +165,83 @@ describe("Phase 3A Queue path", () => {
     expect(result.explicitAcks).toEqual(["dlq-message-1"]);
     expect(result.retryMessages).toHaveLength(0);
     expect(archived).toMatchObject([{ kind: "dlq", attempts: 4, event_id: "queue-event-1" }]);
+  });
+
+  it("archives a non-retryable 4xx as drop", async () => {
+    const envelope = toQueueEnvelope(event(), "http-webhook");
+    const batch = createMessageBatch<QueueEnvelope>("universal-cf-gateway-alpha-http-webhook", [{
+      id: "drop-message-1",
+      timestamp: new Date(),
+      attempts: 1,
+      body: envelope,
+    }]);
+    const ctx = createExecutionContext();
+    const archived: unknown[] = [];
+    const coordinatorWithArchive: CoordinatorRpc = {
+      ...coordinator(),
+      archiveColdPath: async (entry) => {
+        archived.push(entry);
+        return { key: "coldpath:drop:http-webhook:test" };
+      },
+    };
+
+    await processQueueBatch(batch, { PHASE1_WEBHOOK_URL: "https://channel.invalid/hook" }, ctx, {
+      coordinator: coordinatorWithArchive,
+      fetchImpl: vi.fn(async () => new Response("bad request", { status: 400 })),
+    });
+    const result = await getQueueResult(batch, ctx);
+
+    expect(result.explicitAcks).toEqual(["drop-message-1"]);
+    expect(archived).toMatchObject([{ kind: "drop", attempts: 1 }]);
+  });
+
+  it("exports an archived entry to KV without making KV authoritative", async () => {
+    const envelope = toQueueEnvelope(event(), "http-webhook");
+    const batch = createMessageBatch<QueueEnvelope>("universal-cf-gateway-alpha-http-webhook", [{
+      id: "kv-message-1",
+      timestamp: new Date(),
+      attempts: 4,
+      body: envelope,
+    }]);
+    const ctx = createExecutionContext();
+    const put = vi.fn(async () => undefined);
+    const kv = { put } as unknown as KVNamespace;
+    const coordinatorWithArchive: CoordinatorRpc = {
+      ...coordinator(),
+      archiveColdPath: async () => ({ key: "coldpath:dlq:http-webhook:kv" }),
+    };
+
+    await processQueueBatch(batch, { PHASE1_WEBHOOK_URL: "https://channel.invalid/hook", COLD_PATH_KV: kv }, ctx, {
+      coordinator: coordinatorWithArchive,
+      fetchImpl: vi.fn(async () => new Response("upstream down", { status: 503 })),
+    });
+    const result = await getQueueResult(batch, ctx);
+
+    expect(result.explicitAcks).toEqual(["kv-message-1"]);
+    expect(put).toHaveBeenCalledWith("coldpath:dlq:http-webhook:kv", expect.any(String), { expirationTtl: 7 * 24 * 60 * 60 });
+  });
+
+  it("keeps an archived DO record when KV export fails", async () => {
+    const envelope = toQueueEnvelope(event(), "http-webhook");
+    const batch = createMessageBatch<QueueEnvelope>("universal-cf-gateway-alpha-http-webhook", [{
+      id: "kv-failure-message-1",
+      timestamp: new Date(),
+      attempts: 4,
+      body: envelope,
+    }]);
+    const ctx = createExecutionContext();
+    const kv = { put: vi.fn(async () => { throw new Error("KV unavailable"); }) } as unknown as KVNamespace;
+    const archive = vi.fn(async () => ({ key: "coldpath:dlq:http-webhook:kv-failure" }));
+    const coordinatorWithArchive: CoordinatorRpc = { ...coordinator(), archiveColdPath: archive };
+
+    await processQueueBatch(batch, { PHASE1_WEBHOOK_URL: "https://channel.invalid/hook", COLD_PATH_KV: kv }, ctx, {
+      coordinator: coordinatorWithArchive,
+      fetchImpl: vi.fn(async () => new Response("upstream down", { status: 503 })),
+    });
+    const result = await getQueueResult(batch, ctx);
+
+    expect(result.explicitAcks).toEqual(["kv-failure-message-1"]);
+    expect(archive).toHaveBeenCalledTimes(1);
   });
 
   it("consumes a Queue message, sends it, and explicitly acks it", async () => {

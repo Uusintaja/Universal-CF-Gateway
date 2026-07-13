@@ -77,7 +77,7 @@ function itemFromEnvelope(envelope: QueueEnvelope) {
 }
 
 function estimateEnvelopeBytes(envelope: QueueEnvelope): number {
-  return envelope.raw_payload.bytes.length + JSON.stringify(envelope.body).length + 512;
+  return envelope.raw_payload.bytes.length + JSON.stringify(envelope.body).length + 256;
 }
 
 function makeChunk(envelopes: QueueEnvelope[], index: number, total: number): QueuePushChunk {

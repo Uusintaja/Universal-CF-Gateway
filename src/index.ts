@@ -244,6 +244,15 @@ function coldPathEntry(envelope: QueueEnvelope, kind: ColdPathEntry["kind"], rea
 
 async function archiveAndExport(entry: ColdPathEntry, coordinator: CoordinatorRpc, env: Env): Promise<void> {
   const archived = await coordinator.archiveColdPath(entry);
+  console.log(JSON.stringify({
+    level: "info",
+    event: "coldpath_archived",
+    key: archived.key,
+    kind: entry.kind,
+    adapter: entry.adapter,
+    event_id: entry.event_id,
+    kv_export: env.COLD_PATH_KV ? "scheduled" : "unavailable",
+  }));
   if (!env.COLD_PATH_KV) return;
   try {
     await env.COLD_PATH_KV.put(archived.key, JSON.stringify(entry), { expirationTtl: 7 * 24 * 60 * 60 });
