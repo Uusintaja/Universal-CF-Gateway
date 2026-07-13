@@ -50,7 +50,9 @@ describe('CoordinatorDO - invariants P0/P1', () => {
 
   beforeEach(() => {
     state = createMockState();
-    doInstance = new CoordinatorDO(state);
+    // Bypass constructor that requires real DurableObjectState for RPC
+    doInstance = Object.create(CoordinatorDO.prototype);
+    (doInstance as any).storage = state.storage;
   });
 
   it('acquire only read, not write delivered - P0 invariant', async () => {

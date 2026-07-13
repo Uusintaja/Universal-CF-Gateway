@@ -7,6 +7,7 @@
  * - circuit open only once, subsequent release(false) after open skip rewrite (avoid 95 rewrites snow)
  */
 
+import { DurableObject } from 'cloudflare:workers';
 import { LANE_LIMITS, LANE_ALLOCATION, CIRCUIT_DEFAULTS, DEDUP_TTL_MS } from './constants.js';
 import type { Lane } from './constants.js';
 import type { AcquirePayload, AcquireResult, ReleasePayload, ColdPathEntry } from './types.js';
@@ -22,13 +23,12 @@ import {
   coldKey
 } from './storage.js';
 
-export class CoordinatorDO implements DurableObject {
+export class CoordinatorDO extends DurableObject {
   private storage: DurableObjectStorage;
-  private state: DurableObjectState;
 
-  constructor(state: DurableObjectState) {
-    this.state = state;
-    this.storage = state.storage;
+  constructor(ctx: DurableObjectState, env: any) {
+    super(ctx, env);
+    this.storage = ctx.storage;
   }
 
   private laneFor(severity: any): Lane {
