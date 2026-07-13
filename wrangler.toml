@@ -23,6 +23,10 @@ max_batch_size = 5
 max_batch_timeout = 60
 max_retries = 3
 
+[[kv_namespaces]]
+binding = "COLD_PATH_KV"
+id = "f1cf05245a584c309d0fca2719027854"
+
 [[durable_objects.bindings]]
 name = "COORDINATOR"
 class_name = "CoordinatorDO"
