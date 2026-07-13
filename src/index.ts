@@ -98,6 +98,77 @@ export default {
       const adapter = (ADAPTER_REGISTRY as any)[adapterId];
       if (!adapter) continue;
 
+      // Phase 2: DO gating for immediate path (per DESIGN-DOC §5.1 high path)
+      let toSendIds: string[] = [internalEvent.event_id];
+      let lane: any = null;
+      let coordinatorStub: any = null;
+
+      if (env?.COORDINATOR) {
+        try {
+          coordinatorStub = env.COORDINATOR.get(env.COORDINATOR.idFromString(adapterId));
+          const acquireRes: any = await coordinatorStub.acquire({
+            event_ids: [internalEvent.event_id],
+            severity: internalEvent.severity,
+            adapter_id: adapterId
+          });
+
+          if (!acquireRes.allowed) {
+            // circuit_open or lane_full per §4.2
+            console.log(
+              JSON.stringify({
+                level: 'warn',
+                event: 'acquire_blocked',
+                adapter: adapterId,
+                reason: acquireRes.reason,
+                trace_id: raw.trace_id
+              })
+            );
+            transmitResults.push({
+              adapter: adapterId,
+              result: {
+                ok: false,
+                sent_ids: [],
+                error: {
+                  code: acquireRes.reason === 'circuit_open' ? 'CIRCUIT_OPEN' : 'LANE_FULL',
+                  message: acquireRes.reason,
+                  retryable: acquireRes.reason === 'lane_full'
+                }
+              }
+            });
+            // fail-fast for circuit_open, retry for lane_full
+            continue;
+          }
+
+          if (acquireRes.to_send_ids.length === 0) {
+            console.log(
+              JSON.stringify({
+                level: 'info',
+                event: 'dedup_skip',
+                adapter: adapterId,
+                trace_id: raw.trace_id,
+                event_id: internalEvent.event_id
+              })
+            );
+            rendered.push({ adapter: adapterId, skipped: true, reason: 'already_delivered' });
+            continue;
+          }
+
+          toSendIds = acquireRes.to_send_ids;
+          lane = acquireRes.lane;
+        } catch (e: any) {
+          // If DO fails, fallback to direct (Phase 1 behavior) to keep availability
+          console.log(
+            JSON.stringify({
+              level: 'warn',
+              event: 'coordinator_acquire_failed_fallback',
+              adapter: adapterId,
+              error: e?.message,
+              trace_id: raw.trace_id
+            })
+          );
+        }
+      }
+
       const pushMsg = {
         schema_version: '1.0' as const,
         message_id: crypto.randomUUID(),
@@ -112,7 +183,7 @@ export default {
             timestamp: internalEvent.timestamp,
             trace: internalEvent.trace
           }
-        ],
+        ].filter((it: any) => toSendIds.includes(it.event_id)),
         chunk: { index: 0, total: 1 },
         attempt: 0,
         created_at: new Date().toISOString()
@@ -128,16 +199,38 @@ export default {
           },
           config: adapter.config
         });
-        rendered.push({ adapter: adapterId, transportRequest: tr });
+        rendered.push({ adapter: adapterId, transportRequest: tr, to_send_ids: toSendIds, lane });
 
-        // Phase 1: immediate dispatch -> transmit directly (no DO yet)
+        // Phase 1/2: immediate dispatch -> transmit
         if (routeResult.dispatch === 'immediate') {
           const txRes = await transmit(tr, {
             severity: internalEvent.severity,
-            eventIds: [internalEvent.event_id],
-            emailBinding: env?.EMAIL // Cloudflare Email binding if present
+            eventIds: toSendIds,
+            emailBinding: env?.EMAIL
           });
-          transmitResults.push({ adapter: adapterId, result: txRes });
+          transmitResults.push({ adapter: adapterId, result: txRes, lane, to_send_ids: toSendIds });
+
+          // Release with success flag - P0 invariant: only success writes delivered
+          if (coordinatorStub && lane) {
+            try {
+              await coordinatorStub.release({
+                event_ids: toSendIds,
+                lane,
+                success: txRes.ok,
+                adapter_id: adapterId
+              });
+            } catch (e: any) {
+              console.log(
+                JSON.stringify({
+                  level: 'error',
+                  event: 'coordinator_release_failed',
+                  adapter: adapterId,
+                  error: e?.message,
+                  trace_id: raw.trace_id
+                })
+              );
+            }
+          }
 
           if (!txRes.ok) {
             console.log(
@@ -150,8 +243,6 @@ export default {
                 severity: internalEvent.severity
               })
             );
-            // Phase 1 failure semantics per §4.8: do NOT downgrade to low queue, log drop:
-            // drop: will be archived in Phase 3, for now just log
             console.log(
               JSON.stringify({
                 level: 'error',
@@ -168,13 +259,25 @@ export default {
                 event: 'transmit_success',
                 adapter: adapterId,
                 trace_id: raw.trace_id,
-                severity: internalEvent.severity
+                severity: internalEvent.severity,
+                to_send_ids: toSendIds
               })
             );
           }
         }
       } catch (e: any) {
         rendered.push({ adapter: adapterId, error: e?.message ?? String(e) });
+        // On render failure, release with success=false to avoid holding lane
+        if (coordinatorStub && lane) {
+          try {
+            await coordinatorStub.release({
+              event_ids: toSendIds,
+              lane,
+              success: false,
+              adapter_id: adapterId
+            });
+          } catch {}
+        }
       }
     }
 
