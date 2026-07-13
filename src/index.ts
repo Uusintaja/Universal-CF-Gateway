@@ -10,6 +10,8 @@ import { getDecoder } from './decoder/registry.js';
 import { createRouter } from './router/router.js';
 import { ADAPTER_REGISTRY } from './adapter/registry.js';
 import { transmit } from './io/output.js';
+import { enqueue } from './queues/producer.js';
+import { handleQueueBatch } from './queues/consumer.js';
 import type { RequestMeta } from './decoder/types.js';
 
 function extractSourceId(req: Request): string | null {
@@ -132,6 +134,34 @@ export default {
           trace: raw.trace_id
         },
         202
+      );
+    }
+
+    // Phase 3A: Low-priority enqueue path - write-time routing to Queues
+    if (routeResult.dispatch === 'enqueue') {
+      const { enqueued, failed } = await enqueue(internalEvent, routeResult, env);
+      console.log(
+        JSON.stringify({
+          level: 'info',
+          event: 'phase3a_enqueue',
+          source_id: sourceId,
+          event_id: internalEvent.event_id,
+          trace_id: raw.trace_id,
+          route: routeResult,
+          enqueued,
+          failed
+        })
+      );
+      return jsonResponse(
+        {
+          message: 'Phase 3A OK - enqueued to low-priority queues (happy path)',
+          event: internalEvent,
+          route: routeResult,
+          enqueued,
+          failed,
+          trace: raw.trace_id
+        },
+        failed.length > 0 ? 207 : 202
       );
     }
 
@@ -351,6 +381,11 @@ export default {
       },
       isHigh ? (transmitResults.some((r) => !r.result.ok) ? 207 : 200) : 200
     );
+  },
+
+  async queue(batch: any, env: any, ctx: any): Promise<void> {
+    // Phase 3A Happy Path consumer
+    await handleQueueBatch(batch, env, ctx);
   }
 };
 

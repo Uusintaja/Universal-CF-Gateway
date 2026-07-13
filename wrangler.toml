@@ -3,20 +3,40 @@ main = "src/index.ts"
 compatibility_date = "2024-07-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Phase 2 scope: DO coordination core (per DESIGN-DOC)
-# - Worker name includes branch feature "experimental" for dashboard filtering per user request
-# - Queues (Phase 3) and KV (Phase 3 cold cache) kept commented
+# Phase 3A scope: Queues low-priority batch (happy path)
+# - Worker name includes experimental per user request
+# - Queues must be created before deploy: wrangler queues create <name>-experimental
+# - DO binding kept for dedup/lane/circuit
 
-# Phase 3 Queues - experimental branch naming
-# To enable Phase 3, uncomment and run: wrangler queues create slack-webhook-experimental
-# [[queues.producers]]
-# queue = "slack-webhook-experimental"
-# binding = "Q_SLACK_EXP"
-# [[queues.consumers]]
-# queue = "slack-webhook-experimental"
-# max_batch_size = 5
-# max_batch_timeout = 60
-# max_retries = 3
+[[queues.producers]]
+queue = "slack-webhook-experimental"
+binding = "Q_SLACK_EXP"
+
+[[queues.producers]]
+queue = "email-experimental"
+binding = "Q_EMAIL_EXP"
+
+[[queues.producers]]
+queue = "webhook-experimental"
+binding = "Q_WEBHOOK_EXP"
+
+[[queues.consumers]]
+queue = "slack-webhook-experimental"
+max_batch_size = 5
+max_batch_timeout = 60
+max_retries = 3
+
+[[queues.consumers]]
+queue = "email-experimental"
+max_batch_size = 5
+max_batch_timeout = 60
+max_retries = 3
+
+[[queues.consumers]]
+queue = "webhook-experimental"
+max_batch_size = 5
+max_batch_timeout = 60
+max_retries = 3
 
 [durable_objects]
 bindings = [
@@ -27,8 +47,8 @@ bindings = [
 tag = "v1"
 new_sqlite_classes = ["CoordinatorDO"]
 
-# KV for cold query cache - Phase 3, keep placeholder commented
-# To enable Phase 3, uncomment and create: wrangler kv:namespace create KV_EXPERIMENTAL --preview false
+# KV for cold query cache - Phase 3B, keep placeholder commented until 3B
+# To enable Phase 3B, uncomment and create: wrangler kv:namespace create KV_EXPERIMENTAL --preview false
 # [[kv_namespaces]]
 # binding = "KV"
 # id = "local-kv-placeholder-experimental"
