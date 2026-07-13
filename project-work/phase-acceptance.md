@@ -61,8 +61,21 @@
 - Re-enqueuing the same event also returned `202 queued`, but Coordinator DO prevented a second downstream delivery.
 - Webhook request UUID: `3095a689-3c63-41c5-aeca-dd3f9144cdbd`.
 
+## Phase 3B — Local Failure and Cold Path
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Retry/backoff | passed locally | bounded 5/15/45 second schedule test |
+| Retry exhausted | passed locally | ack + `dlq` archive test |
+| Non-retryable 4xx | passed locally | ack + `drop` archive test |
+| DO cold-path archive/query | passed locally | CoordinatorDO tests |
+| KV export success | passed locally | mocked KV binding test |
+| KV export failure | passed locally | DO remains authoritative; warning logged |
+| Merge/chunk boundary | passed locally | 51-item split test |
+| Real 5xx platform smoke | deferred | requires explicit failure test endpoint/resource |
+
 ## Current MVP Gate
 
-Phase 0, Phase 1, Phase 2 core, and Phase 3A acceptance passed.
-Phase 3B and final MVP hardening remain. Final MVP acceptance must include the
-consolidated hardening review before release sign-off.
+Phase 0, Phase 1, Phase 2 core, Phase 3A, and Phase 3B local failure/cold-path acceptance passed.
+Phase 3B real failure platform smoke and final MVP hardening remain. Final MVP
+acceptance must include the consolidated hardening review before release sign-off.

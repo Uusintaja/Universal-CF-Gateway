@@ -2,13 +2,13 @@
 
 ## Active Review Items
 
-- Phase 3B 尚未开始：retry/backoff、cold path、KV 查询缓存。
-- 跨消息 merge/chunk 尚未实现；测试 Adapter 当前采用一条 Queue envelope 对应一条 raw-payload PushMessage，避免未定义的批量 Payload 格式。
+- Phase 3B 本地 retry/backoff、cold path、KV export 和 merge/chunk 已完成。
+- 真实 5xx / Circuit / retry exhausted 平台专项尚未执行；是否需要专用失败 Adapter、Queue 和 Secret 已进入第七轮讨论。
 - Phase 2 的 P2 硬化项保留在 `hardening-register.md`，不阻塞主线推进。
 
 ## Approved for Next Execution
 
-- Phase 3B：retry/backoff 与 cold path 的详细讨论和执行范围确认。
+- 根据第七轮讨论决定是否创建失败测试资源。
 
 ## Phase 3A Closure
 
