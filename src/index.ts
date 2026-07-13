@@ -43,6 +43,50 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
+export async function handleRateLimitSmoke(
+  request: Request,
+  env: Env,
+  limiterOverride?: RateLimit,
+): Promise<Response> {
+  if (request.method !== "GET") return jsonResponse({ error: "METHOD_NOT_ALLOWED" }, 405);
+  if (!env.ALPHA_RATE_LIMIT_SMOKE_TOKEN) return new Response(null, { status: 404 });
+  if (request.headers.get("x-alpha-rate-limit-smoke-token") !== env.ALPHA_RATE_LIMIT_SMOKE_TOKEN) {
+    return new Response(null, { status: 404 });
+  }
+
+  const limiter = limiterOverride ?? env.ALPHA_SOURCE_LIMITER;
+  if (!limiter) return jsonResponse({ error: "RATE_LIMITER_NOT_CONFIGURED" }, 503);
+  const url = new URL(request.url);
+  const requestedCount = Number(url.searchParams.get("count") ?? 70);
+  const count = Number.isFinite(requestedCount) ? Math.min(Math.max(Math.floor(requestedCount), 1), 200) : 70;
+  const requestedKey = url.searchParams.get("key") ?? "serial-probe";
+  const key = `alpha-smoke:${requestedKey}`;
+  const details: Array<{ seq: number; success: boolean }> = [];
+
+  for (let seq = 1; seq <= count; seq += 1) {
+    const { success } = await limiter.limit({ key });
+    details.push({ seq, success });
+  }
+
+  const allowed = details.filter((item) => item.success).length;
+  const rateLimited = details.length - allowed;
+  console.log(JSON.stringify({
+    level: "info",
+    event: "rate_limit_serial_probe",
+    total_requests: count,
+    allowed,
+    rate_limited: rateLimited,
+  }));
+  return jsonResponse({
+    probe: "alpha-rate-limit",
+    key: "redacted",
+    totalRequests: count,
+    allowed,
+    rateLimited,
+    details,
+  });
+}
+
 async function enforceRateLimit(
   request: Request,
   env: Env,
@@ -433,6 +477,9 @@ export async function processQueueBatch(
 
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
+    if (new URL(request.url).pathname === "/__alpha/rate-limit-smoke") {
+      return handleRateLimitSmoke(request, env);
+    }
     return handleRequest(request, env, { requireRateLimit: true });
   },
   queue(batch: MessageBatch<QueueEnvelope>, env: Env, ctx: ExecutionContext): Promise<void> {

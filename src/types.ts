@@ -139,6 +139,7 @@ export interface Env {
   COLD_PATH_KV?: KVNamespace;
   ALPHA_SOURCE_LIMITER?: RateLimit;
   ALPHA_GLOBAL_LIMITER?: RateLimit;
+  ALPHA_RATE_LIMIT_SMOKE_TOKEN?: string;
 }
 
 export interface InternalEvent {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleRequest } from "../src/index";
+import { handleRateLimitSmoke, handleRequest } from "../src/index";
 import { ROUTING_TABLE } from "../src/router";
 import { resolveSource, SOURCE_REGISTRY } from "../src/source";
 
@@ -75,5 +75,26 @@ describe("official Rate Limiting gate", () => {
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({ error: "RATE_LIMITER_NOT_CONFIGURED" });
+  });
+});
+
+describe("serial Rate Limiting probe", () => {
+  it("runs a same-invocation serial probe with a protected token", async () => {
+    let calls = 0;
+    const limiter = {
+      limit: vi.fn(async () => ({ success: calls++ < 2 })),
+    } as unknown as RateLimit;
+    const response = await handleRateLimitSmoke(new Request("https://gateway.test/__alpha/rate-limit-smoke?count=5", {
+      headers: { "x-alpha-rate-limit-smoke-token": "test-token" },
+    }), { ALPHA_RATE_LIMIT_SMOKE_TOKEN: "test-token" }, limiter);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ totalRequests: 5, allowed: 2, rateLimited: 3, key: "redacted" });
+    expect(limiter.limit).toHaveBeenCalledTimes(5);
+  });
+
+  it("hides the serial probe when its token is not configured", async () => {
+    const response = await handleRateLimitSmoke(new Request("https://gateway.test/__alpha/rate-limit-smoke"), {});
+    expect(response.status).toBe(404);
   });
 });
