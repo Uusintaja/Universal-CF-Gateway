@@ -80,8 +80,20 @@ Phase 3A and Phase 3B local acceptance passed. Phase 3A Queue and Batch platform
 happy paths passed. Phase 3B real failure platform smoke is intentionally deferred
 to final MVP hardening according to the approved scope decision.
 
+## Phase 4A — Source Contract and Rate Limiting
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Source Registry | passed locally | `SOURCE_REGISTRY` and route consistency test |
+| Path/header extraction | passed locally | source contract tests |
+| Path/header conflict | passed locally | `SOURCE_CONFLICT` test |
+| Source allowlist | passed locally | unknown/invalid source tests |
+| Official Rate Limiting bindings | configured locally | `ALPHA_SOURCE_LIMITER` and `ALPHA_GLOBAL_LIMITER` in dry-run |
+| 429 before decode | passed locally | denied limiter test |
+| Required binding fail-closed | passed locally | missing limiter returns 503 |
+| Rate limit platform smoke | pending | requires deployment with current bindings |
+
 ## Current MVP Gate
 
-Phase 0, Phase 1, Phase 2 core, and all Phase 3 local acceptance gates passed.
-Phase 4 and final MVP hardening remain. Final MVP acceptance must include the
-consolidated hardening review before release sign-off.
+Phase 0, Phase 1, Phase 2 core, all Phase 3 local acceptance gates, and Phase 4A local acceptance passed.
+Phase 4A platform validation, Phase 4B, and final MVP hardening remain. Final MVP acceptance must include the consolidated hardening review before release sign-off.

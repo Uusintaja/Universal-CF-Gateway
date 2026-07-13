@@ -2,13 +2,16 @@
 
 ## Active Review Items
 
-- Phase 3B 本地 retry/backoff、cold path、KV export 和 merge/chunk 已完成。
+- Phase 4A 本地 Source Registry、入口解析和官方 Rate Limiting binding 已完成。
+- Phase 4A 平台 429 冒烟尚未执行，等待当前版本部署。
+- Phase 4B unmatched sampling、Queue metrics 和可观测性补充尚未开始。
 - Phase 2/3 的真实 5xx、Circuit、retry exhausted 和 Cold Path 平台专项已按决策延期到最终 MVP 硬化。
 - Phase 2 的 P2 硬化项保留在 `hardening-register.md`，不阻塞主线推进。
 
 ## Approved for Next Execution
 
-- 下一轮讨论确认 Phase 4 的范围和验收标准。
+- Phase 4A 平台 Rate Limiting 验收。
+- Phase 4B 讨论和执行范围确认。
 
 ## Phase 3 Closure
 
