@@ -28,6 +28,15 @@ tag = "v1"
 new_classes = ["CoordinatorDO"]
 
 # KV for cold query cache - Phase 3, keep placeholder commented
+# To enable Phase 3, uncomment and create: wrangler kv:namespace create KV_EXPERIMENTAL --preview false
 # [[kv_namespaces]]
 # binding = "KV"
 # id = "local-kv-placeholder-experimental"
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+
