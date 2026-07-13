@@ -74,8 +74,14 @@
 | Merge/chunk boundary | passed locally | 51-item split test |
 | Real 5xx platform smoke | deferred | requires explicit failure test endpoint/resource |
 
+## Phase 3 Summary
+
+Phase 3A and Phase 3B local acceptance passed. Phase 3A Queue and Batch platform
+happy paths passed. Phase 3B real failure platform smoke is intentionally deferred
+to final MVP hardening according to the approved scope decision.
+
 ## Current MVP Gate
 
-Phase 0, Phase 1, Phase 2 core, Phase 3A, and Phase 3B local failure/cold-path acceptance passed.
-Phase 3B real failure platform smoke and final MVP hardening remain. Final MVP
-acceptance must include the consolidated hardening review before release sign-off.
+Phase 0, Phase 1, Phase 2 core, and all Phase 3 local acceptance gates passed.
+Phase 4 and final MVP hardening remain. Final MVP acceptance must include the
+consolidated hardening review before release sign-off.
