@@ -17,6 +17,8 @@ describe("Phase 1 immediate webhook path", () => {
       release: async () => undefined,
       status: async () => ({ circuit: "closed", consecutive_failures: 0, lane_usage: { high_exclusive: 0, low_exclusive: 0, elastic: 0 }, delivered_marker_count: 0, delivered_marker_ttl_sec: 1000 }),
       checkDelivered: async () => ({ delivered: [], not_delivered: [] }),
+      archiveColdPath: async () => ({ key: "coldpath:test" }),
+      queryColdPath: async () => ({ entries: [] }),
     };
   }
 
