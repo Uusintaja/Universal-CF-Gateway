@@ -2,16 +2,17 @@
 
 ## Active Review Items
 
-- Phase 4A 本地 Source Registry、入口解析和官方 Rate Limiting binding 已完成。
-- Phase 4A 平台 429 冒烟尚未执行，等待当前版本部署。
 - Phase 4B unmatched sampling、Queue metrics 和可观测性补充尚未开始。
 - Phase 2/3 的真实 5xx、Circuit、retry exhausted 和 Cold Path 平台专项已按决策延期到最终 MVP 硬化。
 - Phase 2 的 P2 硬化项保留在 `hardening-register.md`，不阻塞主线推进。
 
 ## Approved for Next Execution
 
-- Phase 4A 平台 Rate Limiting 验收。
 - Phase 4B 讨论和执行范围确认。
+
+## Phase 4A Closure
+
+Phase 4A 的 Source Registry、path/header 契约、官方 Rate Limiting binding、本地 429 gate 和受保护 serial probe 均已通过。Serial probe 观察到 61 次允许、9 次限流，符合 `limit=60` 的 N+1 行为。
 
 ## Phase 3 Closure
 

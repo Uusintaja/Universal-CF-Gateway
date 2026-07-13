@@ -91,9 +91,17 @@ to final MVP hardening according to the approved scope decision.
 | Official Rate Limiting bindings | configured locally | `ALPHA_SOURCE_LIMITER` and `ALPHA_GLOBAL_LIMITER` in dry-run |
 | 429 before decode | passed locally | denied limiter test |
 | Required binding fail-closed | passed locally | missing limiter returns 503 |
-| Rate limit platform smoke | pending | requires deployment with current bindings |
+| Rate limit platform smoke | passed | protected serial probe: 61 allowed, 9 limited out of 70 |
+
+### Phase 4A Platform Evidence
+
+- The official `ALPHA_SOURCE_LIMITER` binding responded successfully.
+- The existing production binding was used; no dedicated smoke binding was created.
+- `limit = 60`, `period = 60` produced 61 allowed calls followed by rate limiting, matching the documented N+1 boundary.
+- The probe endpoint was token-protected and the temporary token was deleted after testing.
+- Source whitelist, path/header conflict handling, global fallback and 429 behavior are covered by local tests.
 
 ## Current MVP Gate
 
-Phase 0, Phase 1, Phase 2 core, all Phase 3 local acceptance gates, and Phase 4A local acceptance passed.
-Phase 4A platform validation, Phase 4B, and final MVP hardening remain. Final MVP acceptance must include the consolidated hardening review before release sign-off.
+Phase 0, Phase 1, Phase 2 core, all Phase 3 acceptance gates, and Phase 4A acceptance passed.
+Phase 4B and final MVP hardening remain. Final MVP acceptance must include the consolidated hardening review before release sign-off.
