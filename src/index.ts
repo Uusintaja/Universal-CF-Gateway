@@ -69,15 +69,29 @@ export default {
           return jsonResponse({ error: 'No COORDINATOR binding', has_COORDINATOR: false }, 501);
         }
         try {
-          const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName('status-check'));
-          let status: any;
-          if (typeof stub.status === 'function') {
-            status = await stub.status();
-          } else {
-            const res = await stub.fetch(new Request('https://do/status'));
-            status = await res.json();
+          const adapters = ['email-mailchannels', 'slack-webhook', 'webhook-site', 'status-check'];
+          const allStatus: any = {};
+          for (const adapter of adapters) {
+            try {
+              const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName(adapter));
+              let s: any;
+              if (typeof stub.status === 'function') {
+                s = await stub.status();
+              } else {
+                const res = await stub.fetch(new Request('https://do/status'));
+                s = await res.json();
+              }
+              allStatus[adapter] = s;
+            } catch (e: any) {
+              allStatus[adapter] = { error: e?.message };
+            }
           }
-          return jsonResponse({ ok: true, status });
+          // Aggregate delivered count
+          let totalDelivered = 0;
+          for (const v of Object.values(allStatus) as any[]) {
+            totalDelivered += v?.delivered_marker_count ?? 0;
+          }
+          return jsonResponse({ ok: true, aggregated_delivered: totalDelivered, per_adapter: allStatus });
         } catch (e: any) {
           return jsonResponse({ error: e?.message, stack: e?.stack }, 500);
         }
