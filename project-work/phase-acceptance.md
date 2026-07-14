@@ -101,7 +101,19 @@ to final MVP hardening according to the approved scope decision.
 - The probe endpoint was token-protected and the temporary token was deleted after testing.
 - Source whitelist, path/header conflict handling, global fallback and 429 behavior are covered by local tests.
 
+## Phase 4B-1 — Unmatched Sampling
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Known source with no matching route | passed locally | returns `202 unmatched` |
+| Five-minute source window | passed locally | CoordinatorDO sample/count tests |
+| Raw sample preservation | passed locally | Base64 raw payload in unmatched entry |
+| KV sample export | passed locally | mocked KV export test |
+| KV export failure | passed locally | request remains successful; warning logged |
+| Unmatched observability log | passed locally | `unmatched_sample` event |
+| Platform unmatched smoke | pending | Phase 4B platform deployment |
+
 ## Current MVP Gate
 
-Phase 0, Phase 1, Phase 2 core, all Phase 3 acceptance gates, and Phase 4A acceptance passed.
-Phase 4B and final MVP hardening remain. Final MVP acceptance must include the consolidated hardening review before release sign-off.
+Phase 0, Phase 1, Phase 2 core, all Phase 3 acceptance gates, Phase 4A, and Phase 4B-1 local acceptance passed.
+Phase 4B-2 and final MVP hardening remain. Final MVP acceptance must include the consolidated hardening review before release sign-off.
