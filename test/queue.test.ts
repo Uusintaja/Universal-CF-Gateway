@@ -32,6 +32,7 @@ function coordinator(): CoordinatorRpc {
     checkDelivered: async () => ({ delivered: [], not_delivered: [] }),
     archiveColdPath: async () => ({ key: "coldpath:test" }),
     queryColdPath: async () => ({ entries: [] }),
+    recordUnmatchedSample: async () => ({ sampled: false, count: 0, key: "" }),
   };
 }
 

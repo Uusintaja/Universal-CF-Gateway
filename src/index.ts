@@ -2,7 +2,7 @@ import { AlphaBatchWebhookAdapter, JsonWebhookAdapter } from "./adapters";
 import { genericJsonDecoder } from "./decoder";
 import { materializeHttp } from "./io";
 import { OUTPUT_IO_LIMITS, transmitHttp, type TransmitHttpOptions, type TransmitHttpResult } from "./output-io";
-import { buildPushChunks, toQueueEnvelope } from "./queue";
+import { buildPushChunks, encodeBase64, toQueueEnvelope } from "./queue";
 import { router } from "./router";
 import { resolveSource } from "./source";
 import type { ChannelAdapter, ColdPathEntry, CoordinatorRpc, Env, InternalEvent, InternalPushMessage, QueueEnvelope, RequestMeta } from "./types";
@@ -31,6 +31,7 @@ export interface WorkerDependencies extends Pick<TransmitHttpOptions, "fetchImpl
   sourceLimiter?: RateLimit;
   globalLimiter?: RateLimit;
   requireRateLimit?: boolean;
+  executionContext?: ExecutionContext;
   timeoutMs?: number;
   immediateRetries?: number;
   backoffMs?: number;
@@ -195,7 +196,46 @@ export async function handleRequest(
   }
 
   const route = router.route(decoded);
-  if (!route) return jsonResponse({ event: decoded, route: null }, 200);
+  if (!route) {
+    const unmatchedCoordinator = coordinatorFor(env, dependencies, "unmatched");
+    if (!unmatchedCoordinator) {
+      if (dependencies.requireRateLimit) return jsonResponse({ error: "UNMATCHED_COORDINATOR_NOT_CONFIGURED" }, 503);
+      return jsonResponse({ status: "unmatched", event_id: decoded.event_id, sampled: false }, 202);
+    }
+
+    const sample = await unmatchedCoordinator.recordUnmatchedSample({
+      source_id: decoded.source_id,
+      event_id: decoded.event_id,
+      payload: decoded.body,
+      raw_payload: {
+        encoding: "base64",
+        bytes: encodeBase64(decoded.raw_payload.bytes),
+        content_type: decoded.raw_payload.content_type,
+      },
+      trace: decoded.trace,
+      received_at: receivedAt,
+    });
+    if (sample.sampled && sample.entry && env.COLD_PATH_KV && dependencies.executionContext) {
+      dependencies.executionContext.waitUntil(
+        env.COLD_PATH_KV.put(sample.key, JSON.stringify(sample.entry), { expirationTtl: 7 * 24 * 60 * 60 })
+          .catch((error) => console.warn(JSON.stringify({
+            level: "warn",
+            event: "unmatched_kv_export_failed",
+            key: sample.key,
+            error: error instanceof Error ? error.message : "KV export failed",
+          }))),
+      );
+    }
+    console.log(JSON.stringify({
+      level: "info",
+      event: "unmatched_sample",
+      source_id: decoded.source_id,
+      sampled: sample.sampled,
+      window_count: sample.count,
+      trace_id: decoded.trace.gateway_trace,
+    }));
+    return jsonResponse({ status: "unmatched", event_id: decoded.event_id, sampled: sample.sampled }, 202);
+  }
 
   if (route.dispatch === "enqueue") {
     const adapterId = route.adapter_ids.length === 1 ? route.adapter_ids[0] : undefined;
@@ -476,11 +516,11 @@ export async function processQueueBatch(
 }
 
 export default {
-  fetch(request: Request, env: Env): Promise<Response> {
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (new URL(request.url).pathname === "/__alpha/rate-limit-smoke") {
       return handleRateLimitSmoke(request, env);
     }
-    return handleRequest(request, env, { requireRateLimit: true });
+    return handleRequest(request, env, { requireRateLimit: true, executionContext: ctx });
   },
   queue(batch: MessageBatch<QueueEnvelope>, env: Env, ctx: ExecutionContext): Promise<void> {
     return processQueueBatch(batch, env, ctx);

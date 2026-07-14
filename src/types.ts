@@ -86,6 +86,29 @@ export interface ColdPathEntry {
   };
   trace?: TraceRef;
   received_at: string;
+  sample_count?: number;
+  first_seen_at?: string;
+  last_seen_at?: string;
+}
+
+export interface UnmatchedSampleInput {
+  source_id: string;
+  event_id: string;
+  payload: unknown;
+  raw_payload: {
+    encoding: "base64";
+    bytes: string;
+    content_type?: string;
+  };
+  trace: TraceRef;
+  received_at: string;
+}
+
+export interface UnmatchedSampleResult {
+  sampled: boolean;
+  count: number;
+  key: string;
+  entry?: ColdPathEntry & { key: string };
 }
 
 export interface ColdPathQuery {
@@ -108,6 +131,7 @@ export interface CoordinatorRpc {
   checkDelivered(eventIds: string[]): Promise<{ delivered: string[]; not_delivered: string[] }>;
   archiveColdPath(entry: ColdPathEntry): Promise<{ key: string }>;
   queryColdPath(query: ColdPathQuery): Promise<ColdPathQueryResult>;
+  recordUnmatchedSample(input: UnmatchedSampleInput): Promise<UnmatchedSampleResult>;
 }
 
 export interface QueueEnvelope {

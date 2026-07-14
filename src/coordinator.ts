@@ -11,6 +11,8 @@ import type {
   Lane,
   ReleaseInput,
   Severity,
+  UnmatchedSampleInput,
+  UnmatchedSampleResult,
 } from "./types";
 
 const LANE_CAPACITY: Record<Lane, number> = {
@@ -232,6 +234,40 @@ export class CoordinatorDO extends DurableObject implements CoordinatorRpc {
       .map(([key, entry]) => ({ ...entry, key }));
     const nextCursor = stored.size >= query.limit ? [...stored.keys()].at(-1) : undefined;
     return { entries, nextCursor };
+  }
+
+  async recordUnmatchedSample(input: UnmatchedSampleInput): Promise<UnmatchedSampleResult> {
+    const windowStart = Math.floor(Date.now() / (5 * 60 * 1_000)) * (5 * 60 * 1_000);
+    const key = `coldpath:unmatched:${input.source_id}:${windowStart}`;
+    return this.state.storage.transaction(async (transaction) => {
+      const existing = await transaction.get<ColdPathEntry & { key: string }>(key);
+      if (existing) {
+        const updated = {
+          ...existing,
+          sample_count: (existing.sample_count ?? 1) + 1,
+          last_seen_at: input.received_at,
+        };
+        await transaction.put(key, updated);
+        return { sampled: false, count: updated.sample_count ?? 1, key };
+      }
+
+      const entry: ColdPathEntry & { key: string } = {
+        key,
+        kind: "unmatched",
+        reason: "no route matched",
+        source_id: input.source_id,
+        event_id: input.event_id,
+        payload: input.payload,
+        raw_payload: input.raw_payload,
+        trace: input.trace,
+        received_at: input.received_at,
+        first_seen_at: input.received_at,
+        last_seen_at: input.received_at,
+        sample_count: 1,
+      };
+      await transaction.put(key, entry);
+      return { sampled: true, count: 1, key, entry };
+    });
   }
 
   async fetch(): Promise<Response> {
