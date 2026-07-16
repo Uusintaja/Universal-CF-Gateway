@@ -75,8 +75,21 @@ MVP 发布判定
 |---|---|---|---|---|
 | H-001 | Email 真实发送端到端验证（emailhook.site 真收件） | P2 | Phase1 | 待硬化阶段 |
 | H-002 | MIME 渲染移 DO 内评估（DO 30s vs Consumer 10ms） | P2 | Phase1 | 待评估 |
-| H-003 | wrangler 4.110 需 Node22，当前本地 Node20 需升级路径 | P2 | Phase1 | 已用 4.72 折中，记录 |
+| H-003 | wrangler 4.110 需 Node22，当前本地 Node20 需升级路径 | P2 | Phase1 | 已用 4.72 解析 4.86 折中，CI 已绿，记录 |
 | H-004 | Zod 静态校验 InternalEvent/TransportRequest | P1 | Phase0 | 待 Phase0 补齐 |
 | H-005 | Rate Limiting N+1 边界文档化 | P2 | Phase4 | 待 |
+| H-006 | Queue/KV 未创建导致部署失败 | P0 | Phase3A | 已修复，Phase3A 启用 3 队列 + KV 真实 id，dry-run 41.27 KiB，CI 绿 |
+| H-007 | DO Invalid ID + does not support RPC (idFromString vs idFromName, implements vs extends) | P0 | Phase2 | 已修复，平台冒烟 lane:high_exclusive + dedup_skip 已验 |
+| H-008 | delivered_marker_count 0 因 /status 查 dummy DO | P1 | Phase2 | 已修复为聚合 per-adapter，线上 aggregated_delivered 9→11 验证去重 |
+| H-009 | Cold path KV 缓存未启用 has_KV:false | P1 | Phase3B | 已修复，启用 KV id e7e3700，GET /debug has_KV:true |
 
-更新规则：每轮讨论发现非阻塞项追加此表，不立即改代码。
+更新规则：每轮讨论发现非阻塞项追加此表，不立即改代码，P0 立即修，P1 Phase 验收前必须，P2 延后统一硬化。
+
+## 四、Phase 0-3 关闭状态
+
+* Phase0: 输入管线 - 已关 fixed/phase0-closing-v1.md
+* Phase1: 高优同步 - 已关 fixed/phase1-closing-v1.md，本地+平台冒烟 slack ok
+* Phase2: DO 协调 - 已关 fixed/phase2-closing-v1.md，平台 lane/dedup/circuit 已验
+* Phase3A: Queue Happy Path - 已关 fixed/phase3a-closing-v1.md，入队 202 + 高优仍通
+* Phase3B: Retry+Cold Path - 已关 fixed/phase3b-closing-v1.md，retry 5 用例全绿，平台 delivered 9→11 去重验证，KV 已启用
+
