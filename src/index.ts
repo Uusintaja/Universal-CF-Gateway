@@ -2,10 +2,10 @@ import { AlphaBatchWebhookAdapter, JsonWebhookAdapter } from "./adapters";
 import { genericJsonDecoder } from "./decoder";
 import { materializeHttp } from "./io";
 import { OUTPUT_IO_LIMITS, transmitHttp, type TransmitHttpOptions, type TransmitHttpResult } from "./output-io";
-import { buildPushChunks, encodeBase64, toQueueEnvelope } from "./queue";
+import { buildPushChunks, encodeBase64, readQueueMetrics, toQueueEnvelope } from "./queue";
 import { router } from "./router";
 import { resolveSource } from "./source";
-import type { ChannelAdapter, ColdPathEntry, CoordinatorRpc, Env, InternalEvent, InternalPushMessage, QueueEnvelope, RequestMeta } from "./types";
+import type { ChannelAdapter, ColdPathEntry, CoordinatorRpc, Env, InternalEvent, InternalPushMessage, ObservableQueue, QueueEnvelope, RequestMeta } from "./types";
 
 export { CoordinatorDO } from "./coordinator";
 export * from "./adapters";
@@ -152,10 +152,19 @@ function adapterFor(adapterId: string): ChannelAdapter | null {
   return adapters.get(adapterId) ?? null;
 }
 
-function queueFor(env: Env, adapterId: string): Queue<QueueEnvelope> | null {
+const HTTP_QUEUE_NAME = "universal-cf-gateway-alpha-http-webhook";
+const BATCH_QUEUE_NAME = "universal-cf-gateway-alpha-batch-webhook";
+
+function queueFor(env: Env, adapterId: string): ObservableQueue<QueueEnvelope> | null {
   if (adapterId === phase1Adapter.id) return env.HTTP_WEBHOOK_QUEUE ?? null;
   if (adapterId === alphaBatchAdapter.id) return env.ALPHA_BATCH_WEBHOOK_QUEUE ?? null;
   return null;
+}
+
+function queueByName(env: Env, queueName: string): ObservableQueue<QueueEnvelope> | undefined {
+  if (queueName === HTTP_QUEUE_NAME) return env.HTTP_WEBHOOK_QUEUE;
+  if (queueName === BATCH_QUEUE_NAME) return env.ALPHA_BATCH_WEBHOOK_QUEUE;
+  return undefined;
 }
 
 export async function handleRequest(
@@ -503,6 +512,7 @@ export async function processQueueBatch(
     }
   }
 
+  const metrics = await readQueueMetrics(queueByName(env, batch.queue));
   console.log(JSON.stringify({
     level: "info",
     event: "queue_batch_result",
@@ -512,6 +522,7 @@ export async function processQueueBatch(
     deduplicated,
     retried,
     archived,
+    ...metrics,
   }));
 }
 

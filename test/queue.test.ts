@@ -1,7 +1,7 @@
 import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { handleRequest, processQueueBatch, queueRetryDelay } from "../src/index";
-import { buildPushChunks, toQueueEnvelope } from "../src/queue";
+import { buildPushChunks, readQueueMetrics, toQueueEnvelope } from "../src/queue";
 import type { CoordinatorRpc, Env, InternalEvent, QueueEnvelope } from "../src/types";
 
 function event(): InternalEvent {
@@ -108,6 +108,24 @@ describe("Phase 3A Queue path", () => {
     expect(chunks[1].message.items).toHaveLength(1);
     expect(chunks[0].message.chunk).toEqual({ index: 0, total: 2 });
     expect(chunks[1].message.chunk).toEqual({ index: 1, total: 2 });
+  });
+
+  it("reads Queue metrics when the runtime exposes them", async () => {
+    const metrics = await readQueueMetrics({
+      send: async () => undefined,
+      sendBatch: async () => undefined,
+      metrics: async () => ({ backlogCount: 3, backlogBytes: 512, oldestMessageTimestamp: 123 }),
+    });
+    expect(metrics).toEqual({ metrics_available: true, backlogCount: 3, backlogBytes: 512, oldestMessageTimestamp: 123 });
+  });
+
+  it("treats unavailable or failing Queue metrics as an observability downgrade", async () => {
+    await expect(readQueueMetrics()).resolves.toEqual({ metrics_available: false });
+    await expect(readQueueMetrics({
+      send: async () => undefined,
+      sendBatch: async () => undefined,
+      metrics: async () => { throw new Error("metrics unavailable"); },
+    })).resolves.toEqual({ metrics_available: false });
   });
 
   it("uses bounded exponential retry delays", () => {

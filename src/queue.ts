@@ -1,4 +1,4 @@
-import type { InternalEvent, InternalPushMessage, QueueEnvelope, RawPayload, Severity } from "./types";
+import type { InternalEvent, InternalPushMessage, ObservableQueue, QueueEnvelope, QueueMetrics, RawPayload, Severity } from "./types";
 
 export const QUEUE_PUSH_LIMITS = {
   MAX_ITEMS_PER_MESSAGE: 50,
@@ -8,6 +8,24 @@ export const QUEUE_PUSH_LIMITS = {
 export interface QueuePushChunk {
   message: InternalPushMessage;
   envelopes: QueueEnvelope[];
+}
+
+export interface QueueMetricsResult extends QueueMetrics {
+  metrics_available: boolean;
+}
+
+export async function readQueueMetrics(queue?: ObservableQueue<QueueEnvelope>): Promise<QueueMetricsResult> {
+  if (!queue?.metrics) return { metrics_available: false };
+  try {
+    return { metrics_available: true, ...(await queue.metrics()) };
+  } catch (error) {
+    console.warn(JSON.stringify({
+      level: "warn",
+      event: "queue_metrics_failed",
+      error: error instanceof Error ? error.message : "Queue metrics failed",
+    }));
+    return { metrics_available: false };
+  }
 }
 
 export function encodeBase64(bytes: Uint8Array): string {

@@ -113,7 +113,20 @@ to final MVP hardening according to the approved scope decision.
 | Unmatched observability log | passed locally | `unmatched_sample` event |
 | Platform unmatched smoke | pending | Phase 4B platform deployment |
 
+## Phase 4B-2 — Queue Metrics and Observability
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Queue metrics helper | passed locally | available/unavailable/failure tests |
+| Queue batch metrics logging | passed locally | `metrics_available` and backlog fields |
+| Circuit state logging | passed locally | closed/open transition logs |
+| Cold path logging | passed locally | `coldpath_archived` event |
+| Rate limit logging | passed locally | `rate_limit_result` event |
+| Unmatched logging | passed locally | `unmatched_sample` event |
+| Secret/Payload redaction | passed locally | logs do not include sensitive values |
+| Phase 4B platform observability smoke | pending | requires deployment of current version |
+
 ## Current MVP Gate
 
-Phase 0, Phase 1, Phase 2 core, all Phase 3 acceptance gates, Phase 4A, and Phase 4B-1 local acceptance passed.
-Phase 4B-2 and final MVP hardening remain. Final MVP acceptance must include the consolidated hardening review before release sign-off.
+Phase 0, Phase 1, Phase 2 core, all Phase 3 acceptance gates, Phase 4A, and all Phase 4B local acceptance passed.
+Phase 4B platform observability smoke and final MVP hardening remain. Final MVP acceptance must include the consolidated hardening review before release sign-off.

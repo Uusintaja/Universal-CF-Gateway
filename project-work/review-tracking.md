@@ -2,15 +2,14 @@
 
 ## Active Review Items
 
-- Phase 4B-1 unmatched sampling 本地实现已完成，等待平台验证。
-- Phase 4B-2 Queue metrics 和可观测性补充尚未开始。
+- Phase 4B 本地实现已完成，等待部署后的 observability smoke。
 - Phase 2/3 的真实 5xx、Circuit、retry exhausted 和 Cold Path 平台专项已按决策延期到最终 MVP 硬化。
 - Phase 2 的 P2 硬化项保留在 `hardening-register.md`，不阻塞主线推进。
 
 ## Approved for Next Execution
 
-- Phase 4B-1 平台 unmatched smoke。
-- Phase 4B-2 Queue metrics 和 observability 讨论/执行范围确认。
+- Phase 4B observability platform smoke。
+- Final MVP hardening scope discussion。
 
 ## Phase 4A Closure
 

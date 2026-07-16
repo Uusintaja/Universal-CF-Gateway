@@ -134,6 +134,16 @@ export interface CoordinatorRpc {
   recordUnmatchedSample(input: UnmatchedSampleInput): Promise<UnmatchedSampleResult>;
 }
 
+export interface QueueMetrics {
+  backlogCount?: number;
+  backlogBytes?: number;
+  oldestMessageTimestamp?: number | null;
+}
+
+export interface ObservableQueue<T> extends Queue<T> {
+  metrics?: () => Promise<QueueMetrics>;
+}
+
 export interface QueueEnvelope {
   schema_version: "1.0";
   adapter_id: string;
@@ -158,8 +168,8 @@ export interface QueueEnvelope {
 export interface Env {
   PHASE1_WEBHOOK_URL?: string;
   COORDINATOR?: DurableObjectNamespace;
-  HTTP_WEBHOOK_QUEUE?: Queue<QueueEnvelope>;
-  ALPHA_BATCH_WEBHOOK_QUEUE?: Queue<QueueEnvelope>;
+  HTTP_WEBHOOK_QUEUE?: ObservableQueue<QueueEnvelope>;
+  ALPHA_BATCH_WEBHOOK_QUEUE?: ObservableQueue<QueueEnvelope>;
   COLD_PATH_KV?: KVNamespace;
   ALPHA_SOURCE_LIMITER?: RateLimit;
   ALPHA_GLOBAL_LIMITER?: RateLimit;

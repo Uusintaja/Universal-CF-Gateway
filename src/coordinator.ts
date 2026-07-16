@@ -161,16 +161,20 @@ export class CoordinatorDO extends DurableObject implements CoordinatorRpc {
             expires_at: deliveredAt + DELIVERED_TTL_SECONDS * 1_000,
           } satisfies StoredDelivered);
         }
-        await transaction.put("circuit", {
+        const nextCircuit: StoredCircuit = {
           status: "closed",
           consecutive_failures: 0,
-        } satisfies StoredCircuit);
+        };
+        await transaction.put("circuit", nextCircuit);
+        if (circuit.status !== nextCircuit.status) {
+          console.log(JSON.stringify({ level: "info", event: "circuit_state_change", from: circuit.status, to: nextCircuit.status, failure_count: 0 }));
+        }
         return;
       }
 
       const failures = circuit.consecutive_failures + 1;
       const shouldOpen = lease.probe || failures >= CIRCUIT_THRESHOLD;
-      await transaction.put("circuit", shouldOpen
+      const nextCircuit: StoredCircuit = shouldOpen
         ? {
             status: "open",
             consecutive_failures: failures,
@@ -179,7 +183,11 @@ export class CoordinatorDO extends DurableObject implements CoordinatorRpc {
         : {
             status: "closed",
             consecutive_failures: failures,
-          } satisfies StoredCircuit);
+          };
+      await transaction.put("circuit", nextCircuit);
+      if (circuit.status !== nextCircuit.status) {
+        console.log(JSON.stringify({ level: "warn", event: "circuit_state_change", from: circuit.status, to: nextCircuit.status, failure_count: failures }));
+      }
     });
   }
 
