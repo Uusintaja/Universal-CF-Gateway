@@ -2,13 +2,16 @@
 
 ## Active Review Items
 
-- Phase 4B 本地实现已完成，等待部署后的 observability smoke。
 - Phase 2/3 的真实 5xx、Circuit、retry exhausted 和 Cold Path 平台专项已按决策延期到最终 MVP 硬化。
 - Phase 2 的 P2 硬化项保留在 `hardening-register.md`，不阻塞主线推进。
 
 ## Approved for Next Execution
 
-- Phase 4B observability platform smoke。
+- Final MVP hardening scope discussion。
+
+## Phase 4B Closure
+
+Phase 4B-1 unmatched sampling 和 Phase 4B-2 Queue metrics/observability 的本地测试及平台主路径均已通过。详细 Logs/Traces 内容仍需在 Cloudflare Observability 控制台中查看。
 - Final MVP hardening scope discussion。
 
 ## Phase 4A Closure

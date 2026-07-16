@@ -111,7 +111,7 @@ to final MVP hardening according to the approved scope decision.
 | KV sample export | passed locally | mocked KV export test |
 | KV export failure | passed locally | request remains successful; warning logged |
 | Unmatched observability log | passed locally | `unmatched_sample` event |
-| Platform unmatched smoke | pending | Phase 4B platform deployment |
+| Platform unmatched smoke | passed | 202 response with sampled true/false |
 
 ## Phase 4B-2 — Queue Metrics and Observability
 
@@ -124,9 +124,17 @@ to final MVP hardening according to the approved scope decision.
 | Rate limit logging | passed locally | `rate_limit_result` event |
 | Unmatched logging | passed locally | `unmatched_sample` event |
 | Secret/Payload redaction | passed locally | logs do not include sensitive values |
-| Phase 4B platform observability smoke | pending | requires deployment of current version |
+| Phase 4B platform observability smoke | passed | unmatched and Queue platform smoke |
+
+### Phase 4B Platform Evidence
+
+- Known source with no route returned `202 unmatched`.
+- First unmatched sample returned `sampled=true`; second same-window sample returned `sampled=false`.
+- Queue enqueue returned `202 queued`.
+- Queue Consumer delivered the event to webhook.site after the configured batch window.
+- The current deployment triggered the rate-limit, unmatched, Queue, cold-path and batch log paths; detailed log content requires Cloudflare Logs/Traces inspection.
 
 ## Current MVP Gate
 
-Phase 0, Phase 1, Phase 2 core, all Phase 3 acceptance gates, Phase 4A, and all Phase 4B local acceptance passed.
-Phase 4B platform observability smoke and final MVP hardening remain. Final MVP acceptance must include the consolidated hardening review before release sign-off.
+Phase 0, Phase 1, Phase 2, all Phase 3 acceptance gates, Phase 4A, and all Phase 4B acceptance passed.
+Final MVP hardening remains. Final MVP acceptance must include the consolidated hardening review before release sign-off.
